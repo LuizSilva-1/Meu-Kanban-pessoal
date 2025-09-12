@@ -15,6 +15,7 @@ function exportHistoricoCSV(historico) {
   URL.revokeObjectURL(url);
 }
 import React, { useEffect, useState } from "react";
+import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import axios from "axios";
 import "./App.css";
 import { ToastContainer, toast } from "react-toastify";
@@ -82,6 +83,18 @@ const statusOrder = [
 
 
 function App() {
+  // Função para drag & drop
+  const onDragEnd = (result) => {
+    if (!result.destination) return;
+    const { source, destination, draggableId } = result;
+    const taskId = parseInt(draggableId);
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const newStatus = statusOrder[destination.droppableId];
+    if (task.status !== newStatus) {
+      moveTask(taskId, newStatus);
+    }
+  };
   const [tasks, setTasks] = useState([]);
   const [title, setTitle] = useState("");
   const [historico, setHistorico] = useHistorico();
@@ -149,6 +162,7 @@ function App() {
 
   return (
     <div className={`kanban-bg${darkMode ? " dark-mode" : ""}`}>
+      <ToastContainer position="top-center" autoClose={2000} hideProgressBar={false} newestOnTop closeOnClick pauseOnFocusLoss draggable pauseOnHover />
       <button
         onClick={() => setDarkMode(d => !d)}
         style={{
@@ -158,7 +172,6 @@ function App() {
       >
         {darkMode ? '☀️ Modo claro' : '🌙 Modo escuro'}
       </button>
-      <ToastContainer position="top-center" autoClose={2000} hideProgressBar={false} newestOnTop closeOnClick pauseOnFocusLoss draggable pauseOnHover />
       <h1 className="kanban-main-title">CloudOps Tracker – Minhas Atividades</h1>
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
         <input
@@ -169,81 +182,105 @@ function App() {
           placeholder="Buscar tarefa..."
         />
       </div>
-      <div className="kanban-board">
-        {statusOrder.map(status => (
-          <div key={status} className={`kanban-column ${status}`}>
-            <div className="kanban-column-header">
-              <span style={{fontSize: 22, marginRight: 6}}>{statusIcons[status]}</span>
-              {statusLabels[status]}
-            </div>
-            {status === "backlog" && (
-              <div className="kanban-input-row kanban-input-row-backlog">
-                <input
-                  className="kanban-input"
-                  value={title}
-                  placeholder="Nova tarefa..."
-                  onChange={e => setTitle(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && addTask()}
-                />
-                <button className="kanban-btn" onClick={addTask}>
-                  Adicionar
-                </button>
-              </div>
-            )}
-            {tasks.filter(t => t.status === status && t.title.toLowerCase().includes(search.toLowerCase())).map(t => (
-              <div key={t.id} className="kanban-card">
-                <div className="kanban-card-content">
-                  {editingId === t.id ? (
-                    <input
-                      className="kanban-input"
-                      style={{ fontSize: 15, marginBottom: 4 }}
-                      value={editingTitle}
-                      autoFocus
-                      onChange={e => setEditingTitle(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') saveEdit(t);
-                        if (e.key === 'Escape') cancelEdit();
-                      }}
-                    />
-                  ) : (
-                    <span className="kanban-card-title">{t.title}</span>
+      <DragDropContext onDragEnd={onDragEnd}>
+        <div className="kanban-board">
+          {statusOrder.map((status, colIdx) => (
+            <Droppable droppableId={String(colIdx)} key={status}>
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  className={`kanban-column ${status}`}
+                  style={{ background: snapshot.isDraggingOver ? '#ffe082' : undefined }}
+                >
+                  <div className="kanban-column-header">
+                    <span style={{fontSize: 22, marginRight: 6}}>{statusIcons[status]}</span>
+                    {statusLabels[status]}
+                  </div>
+                  {status === "backlog" && (
+                    <div className="kanban-input-row kanban-input-row-backlog">
+                      <input
+                        className="kanban-input"
+                        value={title}
+                        placeholder="Nova tarefa..."
+                        onChange={e => setTitle(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && addTask()}
+                      />
+                      <button className="kanban-btn" onClick={addTask}>
+                        Adicionar
+                      </button>
+                    </div>
                   )}
+                  {tasks.filter(t => t.status === status && t.title.toLowerCase().includes(search.toLowerCase())).map((t, idx) => (
+                    <Draggable draggableId={String(t.id)} index={idx} key={t.id}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          className="kanban-card"
+                          style={{
+                            ...provided.draggableProps.style,
+                            boxShadow: snapshot.isDragging ? '0 8px 24px #0005' : undefined,
+                            background: snapshot.isDragging ? '#fffde7' : undefined
+                          }}
+                        >
+                          <div className="kanban-card-content">
+                            {editingId === t.id ? (
+                              <input
+                                className="kanban-input"
+                                style={{ fontSize: 15, marginBottom: 4 }}
+                                value={editingTitle}
+                                autoFocus
+                                onChange={e => setEditingTitle(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') saveEdit(t);
+                                  if (e.key === 'Escape') cancelEdit();
+                                }}
+                              />
+                            ) : (
+                              <span className="kanban-card-title">{t.title}</span>
+                            )}
+                          </div>
+                          <div className="kanban-card-actions">
+                            <select
+                              className="kanban-status-dropdown"
+                              value={t.status}
+                              onChange={e => moveTask(t.id, e.target.value)}
+                            >
+                              {statusOrder.map(opt => (
+                                <option key={opt} value={opt}>{statusLabels[opt]}</option>
+                              ))}
+                            </select>
+                            {editingId === t.id ? (
+                              <>
+                                <button className="kanban-btn move" onClick={() => saveEdit(t)} title="Salvar">💾</button>
+                                <button className="kanban-btn delete" onClick={cancelEdit} title="Cancelar">✖</button>
+                              </>
+                            ) : (
+                              <button className="kanban-btn" onClick={() => startEdit(t)} title="Editar">✏️</button>
+                            )}
+                            {status === "done" && (
+                              <button
+                                className="kanban-btn delete"
+                                onClick={() => setConfirmDelete(t.id)}
+                                title="Remover"
+                              >
+                                🗑
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
                 </div>
-                <div className="kanban-card-actions">
-                  <select
-                    className="kanban-status-dropdown"
-                    value={t.status}
-                    onChange={e => moveTask(t.id, e.target.value)}
-                  >
-                    {statusOrder.map(opt => (
-                      <option key={opt} value={opt}>{statusLabels[opt]}</option>
-                    ))}
-                  </select>
-                  {editingId === t.id ? (
-                    <>
-                      <button className="kanban-btn move" onClick={() => saveEdit(t)} title="Salvar">💾</button>
-                      <button className="kanban-btn delete" onClick={cancelEdit} title="Cancelar">✖</button>
-                    </>
-                  ) : (
-                    <button className="kanban-btn" onClick={() => startEdit(t)} title="Editar">✏️</button>
-                  )}
-                  {status === "done" && (
-                    <button
-                      className="kanban-btn delete"
-                      onClick={() => setConfirmDelete(t.id)}
-                      title="Remover"
-                    >
-                      🗑
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-
-      {/* Histórico de tarefas removidas do concluído e lembrete juntos na lateral */}
+              )}
+            </Droppable>
+          ))}
+        </div>
+      </DragDropContext>
       <div className="historico-lembrete-wrapper">
         <Lembrete />
         {historico.length > 0 && (
