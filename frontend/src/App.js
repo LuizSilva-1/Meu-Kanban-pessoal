@@ -82,7 +82,36 @@ const statusOrder = [
 ];
 
 
+// Configuração do login local (altere aqui seu usuário/senha)
+const LOGIN_USER = "admin";
+const LOGIN_PASS = "minhasenha123";
+
 function App() {
+  // Estado do login
+  const [isLogged, setIsLogged] = useState(() => {
+    return localStorage.getItem("kanbanLogged") === "true";
+  });
+  const [loginUser, setLoginUser] = useState("");
+  const [loginPass, setLoginPass] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (loginUser === LOGIN_USER && loginPass === LOGIN_PASS) {
+      setIsLogged(true);
+      localStorage.setItem("kanbanLogged", "true");
+      setLoginError("");
+    } else {
+      setLoginError("Usuário ou senha inválidos!");
+    }
+  };
+
+  const handleLogout = () => {
+    setIsLogged(false);
+    localStorage.removeItem("kanbanLogged");
+  };
+
+  const [tasks, setTasks] = useState([]);
   // Função para drag & drop
   const onDragEnd = (result) => {
     if (!result.destination) return;
@@ -90,12 +119,11 @@ function App() {
     const taskId = parseInt(draggableId);
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
-    const newStatus = statusOrder[destination.droppableId];
+    const newStatus = destination.droppableId;
     if (task.status !== newStatus) {
       moveTask(taskId, newStatus);
     }
   };
-  const [tasks, setTasks] = useState([]);
   const [title, setTitle] = useState("");
   const [historico, setHistorico] = useHistorico();
   const [search, setSearch] = useState("");
@@ -160,8 +188,23 @@ function App() {
     setConfirmDelete(null);
   };
 
+  if (!isLogged) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#232f3e' }}>
+        <form onSubmit={handleLogin} style={{ background: '#fff', borderRadius: 12, boxShadow: '0 4px 24px #0003', padding: 32, minWidth: 320, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <h2 style={{ textAlign: 'center', color: '#232f3e', marginBottom: 8 }}>Login do Kanban</h2>
+          <input type="text" placeholder="Usuário" value={loginUser} onChange={e => setLoginUser(e.target.value)} style={{ padding: 10, borderRadius: 6, border: '1px solid #bbb', fontSize: 16 }} autoFocus />
+          <input type="password" placeholder="Senha" value={loginPass} onChange={e => setLoginPass(e.target.value)} style={{ padding: 10, borderRadius: 6, border: '1px solid #bbb', fontSize: 16 }} />
+          {loginError && <div style={{ color: '#e53935', fontWeight: 600, textAlign: 'center' }}>{loginError}</div>}
+          <button type="submit" style={{ padding: '10px 0', borderRadius: 6, background: '#1976d2', color: '#fff', fontWeight: 700, fontSize: 16, border: 'none', cursor: 'pointer' }}>Entrar</button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className={`kanban-bg${darkMode ? " dark-mode" : ""}`}>
+      <button onClick={handleLogout} style={{ position: 'fixed', top: 18, left: 24, zIndex: 2000, background: '#fff', color: '#232f3e', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 700, boxShadow: '0 2px 8px #0002', cursor: 'pointer', transition: 'all 0.2s', fontSize: 15 }}>Sair</button>
       <ToastContainer position="top-center" autoClose={2000} hideProgressBar={false} newestOnTop closeOnClick pauseOnFocusLoss draggable pauseOnHover />
       <button
         onClick={() => setDarkMode(d => !d)}
@@ -184,8 +227,8 @@ function App() {
       </div>
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="kanban-board">
-          {statusOrder.map((status, colIdx) => (
-            <Droppable droppableId={String(colIdx)} key={status}>
+          {statusOrder.map((status) => (
+            <Droppable droppableId={status} key={status}>
               {(provided, snapshot) => (
                 <div
                   ref={provided.innerRef}
