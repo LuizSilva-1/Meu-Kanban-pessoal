@@ -1,0 +1,50 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs
+logs/
+*.log
+
+# Build
+build/
+dist/
+
+# React
+frontend/build/
+frontend/node_modules/
+
+# SQLite
+backend/database.sqlite
+backend/database/*.sqlite
+backend/dbdata/
+
+# Docker
+*.pid
+*.seed
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+
+# Others
+*.tgz
+*.bak
+*.swp
+*.swo
+.idea/
+
+# Ignore coverage
+coverage/
+
+# Ignore local history
+.history/

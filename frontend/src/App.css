@@ -1,0 +1,385 @@
+/* Dark mode */
+.dark-mode {
+  background: url('./image/unnamed (2).jpg') center center/cover no-repeat fixed, linear-gradient(135deg, #181c24 0%, #232f3e 60%, #232f3e 100%) !important;
+  background-blend-mode: overlay;
+  color: #eee;
+}
+.dark-mode .kanban-main-title {
+  color: #ff9900;
+  text-shadow: 0 2px 8px #0008;
+}
+.dark-mode .kanban-column {
+  background: #232f3e;
+  color: #eee;
+  box-shadow: 0 4px 16px #0006;
+}
+.dark-mode .kanban-column-header {
+  background: #181c24 !important;
+  color: #ff9900 !important;
+}
+.dark-mode .kanban-card {
+  background: #232f3e;
+  color: #eee;
+  box-shadow: 0 2px 8px #0006;
+}
+.dark-mode .kanban-card-title {
+  color: #ffeb3b;
+}
+.dark-mode .kanban-btn {
+  background: #ff9900;
+  color: #232f3e;
+}
+.dark-mode .kanban-btn.delete {
+  background: #e53935;
+  color: #fff;
+}
+.dark-mode .kanban-btn.move {
+  background: #43a047;
+  color: #fff;
+}
+.dark-mode .kanban-status-dropdown {
+  background: #232f3e;
+  color: #ffeb3b;
+  border: 1px solid #888;
+}
+.dark-mode .lembrete-box {
+  background: #232f3e;
+  color: #eee;
+  box-shadow: 0 2px 12px #0006;
+}
+.dark-mode .historico-box {
+  background: #181c24ee;
+  color: #eee;
+  box-shadow: 0 2px 12px #0006;
+}
+.dark-mode .historico-title {
+  color: #ff9900;
+}
+.dark-mode .historico-task-title {
+  color: #43a047;
+}
+.dark-mode .lembrete-label {
+  color: #ff9900;
+}
+.dark-mode .lembrete-textarea {
+  background: #232f3e;
+  color: #eee;
+  border: 1px solid #888;
+}
+/* Responsividade para telas menores */
+@media (max-width: 900px) {
+  .kanban-board {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+    padding: 0 0 32px 0;
+  }
+  .kanban-column {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+  .historico-lembrete-wrapper {
+    position: static;
+    width: 100%;
+    margin: 0 auto 18px auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 600px) {
+  .kanban-main-title {
+    font-size: 1.2rem;
+    padding-top: 18px;
+    padding-bottom: 12px;
+  }
+  .kanban-board {
+    gap: 8px;
+  }
+  .kanban-column {
+    padding: 12px 4px 10px 4px;
+    font-size: 14px;
+  }
+  .lembrete-box, .historico-box {
+    padding: 10px 8px 8px 8px;
+    font-size: 14px;
+  }
+  .historico-box {
+    max-height: 140px;
+  }
+}
+/* Wrapper lateral para lembrete e histórico */
+.historico-lembrete-wrapper {
+  position: fixed;
+  top: 90px;
+  right: 32px;
+  width: 320px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+}
+/* Histórico de atividades removidas */
+.historico-box {
+  width: 100%;
+  background: #f6fff6ee;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 2px 12px #0002;
+  padding: 16px 20px 10px 20px;
+  margin: 0;
+  border-top: 1px solid #e0e0e0;
+  pointer-events: auto;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.historico-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #232f3e;
+  margin-bottom: 10px;
+}
+.historico-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.historico-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 15px;
+}
+.historico-task-title {
+    color: #388e3c;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.historico-task-date {
+  color: #888;
+  font-size: 13px;
+  margin-left: 12px;
+}
+/* Lembrete geral */
+.lembrete-box {
+  width: 100%;
+  background: #fff8;
+  border-radius: 10px 10px 0 0;
+  box-shadow: 0 2px 12px #0002;
+  padding: 16px 20px 10px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-bottom: 0;
+  pointer-events: auto;
+}
+.lembrete-label {
+  font-weight: 700;
+  color: #232f3e;
+  margin-bottom: 6px;
+}
+.lembrete-textarea {
+  border-radius: 6px;
+  border: 1px solid #bbb;
+  padding: 8px;
+  font-size: 15px;
+  resize: vertical;
+  min-height: 36px;
+  background: #fafbfc;
+  color: #232f3e;
+  outline: none;
+  width: 100%;
+  transition: border 0.2s;
+}
+.kanban-status-dropdown:focus {
+  border: 1.5px solid #1976d2;
+}
+
+.kanban-bg {
+  min-height: 100vh;
+  background: url('./image/unnamed (2).jpg') center center/cover no-repeat fixed, linear-gradient(135deg, #232f3e 0%, #232f3e 60%, #ff9900 100%);
+  background-blend-mode: overlay;
+  background-attachment: fixed;
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: none;
+  margin: 0;
+  font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+.kanban-main-title {
+  text-align: center;
+  color: #fff;
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  margin: 0;
+  padding-top: 32px;
+  padding-bottom: 24px;
+  text-shadow: 0 2px 8px #0003;
+  font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+.kanban-board {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 0 320px 32px 0; /* espaço à direita para o lembrete */
+  min-height: 70vh;
+  box-sizing: border-box;
+}
+
+.kanban-column {
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 16px #0002;
+  padding: 24px 12px 18px 12px;
+  min-width: 180px;
+  max-width: 200px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+  transition: box-shadow 0.2s;
+}
+.kanban-column.backlog .kanban-column-header {
+  background: #374151;
+  color: #fff;
+}
+.kanban-column.planning .kanban-column-header {
+  background: #6366f1;
+  color: #fff;
+}
+.kanban-column.coding .kanban-column-header {
+  background: #1e88e5;
+  color: #fff;
+}
+.kanban-column.build .kanban-column-header {
+  background: #ff9900;
+  color: #232f3e;
+}
+.kanban-column.deploy .kanban-column-header {
+  background: #232f3e;
+  color: #ff9900;
+}
+.kanban-column.monitor .kanban-column-header {
+  background: #00bfae;
+  color: #fff;
+}
+.kanban-column.done .kanban-column-header {
+  background: #43a047;
+  color: #fff;
+}
+.kanban-column-header {
+  font-weight: 700;
+  font-size: 1.1rem;
+  border-radius: 12px;
+  padding: 8px 0;
+  margin-bottom: 12px;
+  text-align: center;
+  box-shadow: 0 2px 8px #0001;
+  letter-spacing: 1px;
+}
+.kanban-column:hover {
+  box-shadow: 0 8px 24px #0002;
+}
+
+
+.kanban-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  width: 100%;
+  box-sizing: border-box;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+}
+.kanban-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.kanban-btn {
+  flex-shrink: 0;
+}
+.kanban-input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #bbb;
+  font-size: 15px;
+  background: #fafbfc;
+  transition: border 0.2s;
+}
+.kanban-input:focus {
+  border: 1.5px solid #1976d2;
+  outline: none;
+}
+.kanban-btn {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #1976d2;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 1px 2px #0001;
+  transition: background 0.2s, transform 0.1s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 38px;
+}
+.kanban-btn.move {
+  background: #43a047;
+}
+.kanban-btn.delete {
+  background: #e53935;
+}
+.kanban-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px) scale(1.04);
+}
+
+.kanban-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px #0002;
+  padding: 12px 10px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: box-shadow 0.2s, transform 0.1s;
+}
+.kanban-card:hover {
+  box-shadow: 0 6px 18px #0003;
+  transform: translateY(-2px) scale(1.02);
+}
+.kanban-card-content {
+  margin-bottom: 2px;
+}
+.kanban-card-title {
+  font-size: 15px;
+  color: #232f3e;
+  font-weight: 600;
+  word-break: break-word;
+}
+.kanban-card-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}

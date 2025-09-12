@@ -1,0 +1,16 @@
+services:
+  backend:
+    build: ./backend
+    container_name: kanban-backend
+    ports:
+      - "5000:5000"
+
+  frontend:
+    build: ./frontend
+    container_name: kanban-frontend
+    ports:
+      - "3000:3000"
+    stdin_open: true
+    tty: true
+    depends_on:
+      - backend
