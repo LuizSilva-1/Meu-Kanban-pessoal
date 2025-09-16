@@ -1,3 +1,194 @@
+// Painel administrativo para gerenciar usuários
+function AdminPanel({ user, onClose }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const fetchUsers = () => {
+    setLoading(true);
+    axios.get("/api/users")
+      .then(res => setUsers(res.data))
+      .catch(() => setError("Erro ao buscar usuários"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchUsers(); }, []);
+
+  const handleRoleChange = (id, newRole) => {
+    axios.put(`/api/users/${id}/role`, { role: newRole })
+      .then(() => { setSuccess("Papel atualizado!"); fetchUsers(); })
+      .catch(() => setError("Erro ao atualizar papel"));
+  };
+
+  const handleRemove = (id) => {
+    if (window.confirm("Tem certeza que deseja remover este usuário?")) {
+      axios.delete(`/api/users/${id}`)
+        .then(() => { setSuccess("Usuário removido!"); fetchUsers(); })
+        .catch(err => setError(err.response?.data?.error || "Erro ao remover usuário"));
+    }
+  };
+
+  return (
+    <Modal isOpen onRequestClose={onClose} contentLabel="Administração de Usuários" style={{content:{maxWidth:500,margin:'60px auto',borderRadius:10}}}>
+      <h2 style={{marginTop:0}}>Administração de Usuários</h2>
+      {error && <div style={{ color: "#e53935", marginBottom: 8 }}>{error}</div>}
+      {success && <div style={{ color: "#43a047", marginBottom: 8 }}>{success}</div>}
+      {loading ? <div>Carregando...</div> : (
+        <table style={{width:'100%',fontSize:15}}>
+          <thead>
+            <tr style={{background:'#eee'}}>
+              <th>Usuário</th>
+              <th>Papel</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map(u => (
+              <tr key={u.id}>
+                <td>{u.username}{u.id === user.id && ' (você)'}</td>
+                <td>
+                  <select value={u.role} disabled={u.id === user.id} onChange={e => handleRoleChange(u.id, e.target.value)}>
+                    <option value="user">usuário</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </td>
+                <td>
+                  {u.id !== user.id && (
+                    <button onClick={() => handleRemove(u.id)} style={{ background: "#e53935", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontWeight: 700 }}>Remover</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <button onClick={onClose} style={{ width: "100%", padding: 8, borderRadius: 6, background: "#eee", color: "#232f3e", fontWeight: 700, border: "none", marginTop: 16 }}>Fechar</button>
+    </Modal>
+  );
+}
+// Formulário de alteração de senha
+function ChangePasswordForm({ onClose, isOpen }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSuccess(false);
+    if (newPassword !== confirmPassword) {
+      setError("As senhas não coincidem");
+      return;
+    }
+    setLoading(true);
+    try {
+      await axios.post("/api/change-password", { currentPassword, newPassword });
+      setSuccess(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      setError(err.response?.data?.error || "Erro ao alterar senha");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onRequestClose={onClose} contentLabel="Alterar Senha" style={{content:{maxWidth:400,margin:'60px auto',borderRadius:10}}}>
+      <h2 style={{marginTop:0}}>Alterar Senha</h2>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="password"
+          placeholder="Senha atual"
+          value={currentPassword}
+          onChange={e => setCurrentPassword(e.target.value)}
+          style={{ width: "100%", marginBottom: 10, padding: 8, borderRadius: 6, border: "1px solid #bbb" }}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Nova senha"
+          value={newPassword}
+          onChange={e => setNewPassword(e.target.value)}
+          style={{ width: "100%", marginBottom: 10, padding: 8, borderRadius: 6, border: "1px solid #bbb" }}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Confirmar nova senha"
+          value={confirmPassword}
+          onChange={e => setConfirmPassword(e.target.value)}
+          style={{ width: "100%", marginBottom: 10, padding: 8, borderRadius: 6, border: "1px solid #bbb" }}
+          required
+        />
+        {error && <div style={{ color: "#e53935", marginBottom: 8 }}>{error}</div>}
+        {success && <div style={{ color: "#43a047", marginBottom: 8 }}>Senha alterada com sucesso!</div>}
+        <button type="submit" style={{ width: "100%", padding: 10, borderRadius: 6, background: "#1976d2", color: "#fff", fontWeight: 700, border: "none", marginBottom: 8 }} disabled={loading}>
+          {loading ? "Salvando..." : "Alterar Senha"}
+        </button>
+      </form>
+      <button onClick={onClose} style={{ width: "100%", padding: 8, borderRadius: 6, background: "#eee", color: "#232f3e", fontWeight: 700, border: "none" }}>Fechar</button>
+    </Modal>
+  );
+}
+// ...existing imports...
+import Modal from "react-modal";
+Modal.setAppElement('#root');
+// Componente para exibir auditoria
+function AuditLogModal({ isOpen, onRequestClose }) {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (isOpen) {
+      setLoading(true);
+      setError("");
+      axios.get("/api/audit")
+        .then(res => setLogs(res.data))
+        .catch(err => setError("Erro ao buscar auditoria"))
+        .finally(() => setLoading(false));
+    }
+  }, [isOpen]);
+
+  return (
+    <Modal isOpen={isOpen} onRequestClose={onRequestClose} contentLabel="Auditoria" style={{content:{maxWidth:600,margin:'60px auto',borderRadius:10}}}>
+      <h2 style={{marginTop:0}}>Auditoria do Sistema</h2>
+      <button onClick={onRequestClose} style={{position:'absolute',top:12,right:18,background:'#e53935',color:'#fff',border:'none',borderRadius:6,padding:'4px 12px',fontWeight:700}}>Fechar</button>
+      {loading ? <div>Carregando...</div> : error ? <div style={{color:'#e53935'}}>{error}</div> : (
+        <div style={{maxHeight:400,overflowY:'auto'}}>
+          <table style={{width:'100%',fontSize:15}}>
+            <thead>
+              <tr style={{background:'#eee'}}>
+                <th style={{textAlign:'left'}}>Usuário</th>
+                <th>Ação</th>
+                <th>Método</th>
+                <th>Rota</th>
+                <th>Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log,i) => (
+                <tr key={log.id || i}>
+                  <td>{log.user}</td>
+                  <td>{log.action}</td>
+                  <td>{log.method}</td>
+                  <td>{log.path}</td>
+                  <td>{new Date(log.date).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
 // Função utilitária para exportar CSV
 function exportHistoricoCSV(historico) {
   if (!historico.length) return;
@@ -82,34 +273,120 @@ const statusOrder = [
 ];
 
 
-// Configuração do login local (altere aqui seu usuário/senha)
-const LOGIN_USER = "admin";
-const LOGIN_PASS = "minhasenha123";
 
-function App() {
-  // Estado do login
-  const [isLogged, setIsLogged] = useState(() => {
-    return localStorage.getItem("kanbanLogged") === "true";
-  });
-  const [loginUser, setLoginUser] = useState("");
-  const [loginPass, setLoginPass] = useState("");
-  const [loginError, setLoginError] = useState("");
+// Componente de autenticação (login/cadastro) com opção de admin
+function AuthForm({ onAuth }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLogin, setIsLogin] = useState(true);
+  const [error, setError] = useState("");
+  const [role, setRole] = useState("user");
+  const [adminAvailable, setAdminAvailable] = useState(false);
 
-  const handleLogin = (e) => {
+  // Verifica se pode criar admin
+  useEffect(() => {
+    if (!isLogin) {
+      axios.get("/api/audit") // qualquer rota protegida
+        .then(() => setAdminAvailable(false))
+        .catch(err => {
+          if (err.response?.status === 401 || err.response?.status === 403) {
+            // Tenta criar admin apenas se não houver admin
+            axios.post("/api/login", { username: "__admin_check__", password: "__admin_check__" })
+              .catch(() => setAdminAvailable(true));
+          }
+        });
+    }
+  }, [isLogin]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (loginUser === LOGIN_USER && loginPass === LOGIN_PASS) {
-      setIsLogged(true);
-      localStorage.setItem("kanbanLogged", "true");
-      setLoginError("");
-    } else {
-      setLoginError("Usuário ou senha inválidos!");
+    setError("");
+    try {
+      const url = isLogin ? "/api/login" : "/api/register";
+      const payload = isLogin ? { username, password } : { username, password, role };
+      const res = await axios.post(url, payload);
+      onAuth(res.data);
+    } catch (err) {
+      setError(err.response?.data?.error || "Erro ao autenticar");
     }
   };
 
-  const handleLogout = () => {
-    setIsLogged(false);
-    localStorage.removeItem("kanbanLogged");
+  return (
+    <div style={{ maxWidth: 320, margin: "60px auto", background: "#fff", padding: 24, borderRadius: 10, boxShadow: "0 2px 12px #0002" }}>
+      <h2 style={{ textAlign: "center" }}>{isLogin ? "Login" : "Cadastro"}</h2>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          placeholder="Usuário"
+          value={username}
+          onChange={e => setUsername(e.target.value)}
+          style={{ width: "100%", marginBottom: 10, padding: 8, borderRadius: 6, border: "1px solid #bbb" }}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Senha"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          style={{ width: "100%", marginBottom: 10, padding: 8, borderRadius: 6, border: "1px solid #bbb" }}
+          required
+        />
+        {!isLogin && adminAvailable && (
+          <div style={{ marginBottom: 10 }}>
+            <label>
+              <input type="radio" name="role" value="user" checked={role === "user"} onChange={() => setRole("user")} /> Usuário
+            </label>
+            <label style={{ marginLeft: 16 }}>
+              <input type="radio" name="role" value="admin" checked={role === "admin"} onChange={() => setRole("admin")} /> Administrador
+            </label>
+            <div style={{ fontSize: 12, color: '#888' }}>(Só é possível criar o primeiro admin)</div>
+          </div>
+        )}
+        {error && <div style={{ color: "#e53935", marginBottom: 8 }}>{error}</div>}
+        <button type="submit" style={{ width: "100%", padding: 10, borderRadius: 6, background: "#1976d2", color: "#fff", fontWeight: 700, border: "none", marginBottom: 8 }}>
+          {isLogin ? "Entrar" : "Cadastrar"}
+        </button>
+      </form>
+      <button onClick={() => setIsLogin(!isLogin)} style={{ width: "100%", padding: 8, borderRadius: 6, background: "#ff9900", color: "#232f3e", fontWeight: 700, border: "none" }}>
+        {isLogin ? "Criar conta" : "Já tenho conta"}
+      </button>
+    </div>
+  );
+}
+
+function App() {
+  const [changePassOpen, setChangePassOpen] = useState(false);
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
+  // Estado do usuário autenticado
+
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("kanbanUser"));
+    } catch {
+      return null;
+    }
+  });
+
+  const handleAuth = (data) => {
+    setUser(data);
+    localStorage.setItem("kanbanUser", JSON.stringify(data));
   };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem("kanbanUser");
+  };
+
+  // Intercepta requisições para enviar token
+  useEffect(() => {
+    if (user?.token) {
+      axios.defaults.headers.common["Authorization"] = `Bearer ${user.token}`;
+    } else {
+      delete axios.defaults.headers.common["Authorization"];
+    }
+  }, [user]);
+
 
   const [tasks, setTasks] = useState([]);
   // Função para drag & drop
@@ -158,23 +435,33 @@ function App() {
     });
   };
 
+
   useEffect(() => {
-    axios.get("/tasks").then(res => setTasks(res.data));
-  }, []);
+    if (user?.token) {
+      axios.get("/tasks").then(res => setTasks(res.data));
+    }
+  }, [user]);
+
 
   const addTask = () => {
     if (!title.trim()) return;
     axios.post("/tasks", { title }).then(res => {
       setTasks([...tasks, res.data]);
       setTitle("");
+    }).catch(err => {
+      if (err.response?.status === 401) handleLogout();
     });
   };
+
 
   const moveTask = (id, status) => {
     axios.put(`/tasks/${id}`, { status }).then(() => {
       setTasks(tasks.map(t => (t.id === id ? { ...t, status } : t)));
+    }).catch(err => {
+      if (err.response?.status === 401) handleLogout();
     });
   };
+
 
   const deleteTask = (id) => {
     const taskToDelete = tasks.find(t => t.id === id);
@@ -184,37 +471,64 @@ function App() {
     axios.delete(`/tasks/${id}`).then(() => {
       setTasks(tasks.filter(t => t.id !== id));
       toast.success("Tarefa removida com sucesso!");
+    }).catch(err => {
+      if (err.response?.status === 401) handleLogout();
     });
     setConfirmDelete(null);
   };
 
-  if (!isLogged) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#232f3e' }}>
-        <form onSubmit={handleLogin} style={{ background: '#fff', borderRadius: 12, boxShadow: '0 4px 24px #0003', padding: 32, minWidth: 320, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <h2 style={{ textAlign: 'center', color: '#232f3e', marginBottom: 8 }}>Login do Kanban</h2>
-          <input type="text" placeholder="Usuário" value={loginUser} onChange={e => setLoginUser(e.target.value)} style={{ padding: 10, borderRadius: 6, border: '1px solid #bbb', fontSize: 16 }} autoFocus />
-          <input type="password" placeholder="Senha" value={loginPass} onChange={e => setLoginPass(e.target.value)} style={{ padding: 10, borderRadius: 6, border: '1px solid #bbb', fontSize: 16 }} />
-          {loginError && <div style={{ color: '#e53935', fontWeight: 600, textAlign: 'center' }}>{loginError}</div>}
-          <button type="submit" style={{ padding: '10px 0', borderRadius: 6, background: '#1976d2', color: '#fff', fontWeight: 700, fontSize: 16, border: 'none', cursor: 'pointer' }}>Entrar</button>
-        </form>
-      </div>
-    );
+  if (!user) {
+    return <AuthForm onAuth={handleAuth} />;
   }
 
   return (
     <div className={`kanban-bg${darkMode ? " dark-mode" : ""}`}>
-      <button onClick={handleLogout} style={{ position: 'fixed', top: 18, left: 24, zIndex: 2000, background: '#fff', color: '#232f3e', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 700, boxShadow: '0 2px 8px #0002', cursor: 'pointer', transition: 'all 0.2s', fontSize: 15 }}>Sair</button>
+      <div style={{
+        display: "flex",
+        justifyContent: "flex-end",
+        alignItems: 'center',
+        gap: 12,
+        padding: 12,
+        position: 'relative',
+        zIndex: 10,
+        flexWrap: 'wrap',
+      }}>
+        <span>Olá, <b>{user.username}</b> <span style={{fontSize:13, color:'#888'}}>({user.role === 'admin' ? 'admin' : 'usuário'})</span></span>
+        <button onClick={() => setChangePassOpen(true)} style={{ background: "#ff9900", color: "#232f3e", border: "none", borderRadius: 6, padding: "6px 14px", fontWeight: 700, position: 'relative', zIndex: 2 }}>Alterar Senha</button>
+        {user.role === 'admin' && (
+          <>
+            <button onClick={() => setAuditOpen(true)} style={{ background: "#1976d2", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontWeight: 700, position: 'relative', zIndex: 2 }}>Ver Auditoria</button>
+            <button onClick={() => setAdminPanelOpen(true)} style={{ background: "#232f3e", color: "#ffeb3b", border: "none", borderRadius: 6, padding: "6px 14px", fontWeight: 700, position: 'relative', zIndex: 2 }}>Administração</button>
+          </>
+        )}
+        <button onClick={handleLogout} style={{ background: "#e53935", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontWeight: 700, position: 'relative', zIndex: 2 }}>Sair</button>
+        <button
+          onClick={() => setDarkMode(d => !d)}
+          style={{
+            background: darkMode ? '#232f3e' : '#fff',
+            color: darkMode ? '#ff9900' : '#232f3e',
+            border: 'none',
+            borderRadius: 8,
+            padding: '8px 16px',
+            fontWeight: 700,
+            boxShadow: '0 2px 8px #0002',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            fontSize: 15,
+            marginLeft: 8,
+            position: 'relative',
+            zIndex: 1,
+          }}
+          title={darkMode ? 'Modo claro' : 'Modo escuro'}
+        >
+          {darkMode ? '☀️ Modo claro' : '🌙 Modo escuro'}
+        </button>
+      </div>
+      <ChangePasswordForm onClose={() => setChangePassOpen(false)} isOpen={changePassOpen} />
+  {user.role === 'admin' && <AuditLogModal isOpen={auditOpen} onRequestClose={() => setAuditOpen(false)} />}
+  {user.role === 'admin' && adminPanelOpen && <AdminPanel user={user} onClose={() => setAdminPanelOpen(false)} />}
       <ToastContainer position="top-center" autoClose={2000} hideProgressBar={false} newestOnTop closeOnClick pauseOnFocusLoss draggable pauseOnHover />
-      <button
-        onClick={() => setDarkMode(d => !d)}
-        style={{
-          position: 'fixed', top: 18, right: 24, zIndex: 2000, background: darkMode ? '#232f3e' : '#fff', color: darkMode ? '#ff9900' : '#232f3e', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 700, boxShadow: '0 2px 8px #0002', cursor: 'pointer', transition: 'all 0.2s', fontSize: 15
-        }}
-        title={darkMode ? 'Modo claro' : 'Modo escuro'}
-      >
-        {darkMode ? '☀️ Modo claro' : '🌙 Modo escuro'}
-      </button>
+      {/* Botão de modo escuro movido para o topo, junto dos outros botões */}
       <h1 className="kanban-main-title">CloudOps Tracker – Minhas Atividades</h1>
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
         <input
