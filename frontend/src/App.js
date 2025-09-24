@@ -283,18 +283,10 @@ function AuthForm({ onAuth }) {
   const [role, setRole] = useState("user");
   const [adminAvailable, setAdminAvailable] = useState(false);
 
-  // Verifica se pode criar admin
+  // Sempre permitir criar admin, o backend irá validar
   useEffect(() => {
     if (!isLogin) {
-      axios.get("/api/audit") // qualquer rota protegida
-        .then(() => setAdminAvailable(false))
-        .catch(err => {
-          if (err.response?.status === 401 || err.response?.status === 403) {
-            // Tenta criar admin apenas se não houver admin
-            axios.post("/api/login", { username: "__admin_check__", password: "__admin_check__" })
-              .catch(() => setAdminAvailable(true));
-          }
-        });
+      setAdminAvailable(true);
     }
   }, [isLogin]);
 
