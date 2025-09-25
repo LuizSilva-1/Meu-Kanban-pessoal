@@ -46,6 +46,9 @@ function ensureTaskColumns() {
     if (!colNames.includes("checklist")) {
       db.run("ALTER TABLE tasks ADD COLUMN checklist TEXT DEFAULT '[]'");
     }
+    if (!colNames.includes("owner_id")) {
+      db.run("ALTER TABLE tasks ADD COLUMN owner_id INTEGER REFERENCES users(id)");
+    }
   });
 }
 
@@ -65,7 +68,8 @@ db.serialize(() => {
       code TEXT,
       updated_at TEXT DEFAULT (datetime('now')),
       tags TEXT DEFAULT '[]',
-      checklist TEXT DEFAULT '[]'
+      checklist TEXT DEFAULT '[]',
+      owner_id INTEGER REFERENCES users(id)
     )
   `);
   db.run(`
@@ -136,14 +140,14 @@ app.post('/api/register', (req, res) => {
         const token = generateToken();
         db.run('INSERT INTO users (username, password, token, role) VALUES (?, ?, ?, ?)', [username, password, token, 'admin'], function (err3) {
           if (err3) return res.status(500).json({ error: 'Erro ao cadastrar admin' });
-          res.json({ username, token, role: 'admin' });
+          res.json({ id: this.lastID, username, token, role: 'admin' });
         });
       });
     } else {
       const token = generateToken();
       db.run('INSERT INTO users (username, password, token, role) VALUES (?, ?, ?, ?)', [username, password, token, 'user'], function (err2) {
         if (err2) return res.status(500).json({ error: 'Erro ao cadastrar usuário' });
-        res.json({ username, token, role: 'user' });
+        res.json({ id: this.lastID, username, token, role: 'user' });
       });
     }
   });
@@ -158,7 +162,7 @@ app.post('/api/login', (req, res) => {
     const token = generateToken();
     db.run('UPDATE users SET token = ? WHERE id = ?', [token, user.id], function (err2) {
       if (err2) return res.status(500).json({ error: 'Erro ao atualizar token' });
-      res.json({ username, token, role: user.role });
+      res.json({ id: user.id, username, token, role: user.role });
     });
   });
 });
@@ -219,7 +223,27 @@ app.get('/api/audit', authMiddleware, audit('view_audit'), (req, res) => {
 
 // Listar todas as tarefas
 app.get("/tasks", authMiddleware, audit('list_tasks'), (req, res) => {
-  db.all("SELECT * FROM tasks", [], (err, rows) => {
+  const requesterIsAdmin = req.user.role === 'admin';
+  const filters = [];
+  const params = [];
+  if (!requesterIsAdmin) {
+    filters.push('(tasks.owner_id = ? OR tasks.owner_id IS NULL)');
+    params.push(req.user.id);
+  } else if (req.query.owner) {
+    const ownerParam = req.query.owner.trim();
+    if (ownerParam === 'none') {
+      filters.push('tasks.owner_id IS NULL');
+    } else {
+      const ownerId = parseInt(ownerParam, 10);
+      if (Number.isNaN(ownerId) || ownerId < 1) {
+        return res.status(400).json({ error: 'Parâmetro owner inválido' });
+      }
+      filters.push('tasks.owner_id = ?');
+      params.push(ownerId);
+    }
+  }
+  const query = `SELECT tasks.*, users.username AS owner_username FROM tasks LEFT JOIN users ON tasks.owner_id = users.id${filters.length ? ` WHERE ${filters.join(' AND ')}` : ''}`;
+  db.all(query, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     const normalized = rows.map(row => {
       let parsedTags = [];
@@ -285,8 +309,23 @@ function sanitizeChecklist(input) {
   return result;
 }
 
+function ensureOwnerExists(ownerId, dbInstance, callback) {
+  if (ownerId === null || ownerId === undefined) {
+    return callback(null);
+  }
+  const numericId = parseInt(ownerId, 10);
+  if (Number.isNaN(numericId) || numericId < 1) {
+    return callback(new Error('INVALID_OWNER'));
+  }
+  dbInstance.get('SELECT id FROM users WHERE id = ?', [numericId], (err, row) => {
+    if (err) return callback(err);
+    if (!row) return callback(new Error('OWNER_NOT_FOUND'));
+    callback(null, numericId);
+  });
+}
+
 app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
-  let { title, priority = 'media', description = '', assignee = '', parent_id = null, status, tags = [], checklist = [] } = req.body;
+  let { title, priority = 'media', description = '', assignee = '', parent_id = null, status, tags = [], checklist = [], owner_id } = req.body;
   if (!title || title.trim() === "") {
     return res.status(400).json({ error: "O título não pode ser vazio" });
   }
@@ -294,19 +333,28 @@ app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
   if (!VALID_PRIORITIES.includes(priority)) {
     priority = 'media';
   }
+  const requesterIsAdmin = req.user.role === 'admin';
+  let ownerId = req.user.id;
+  if (requesterIsAdmin && owner_id !== undefined && owner_id !== null && owner_id !== '') {
+    const parsedOwner = parseInt(owner_id, 10);
+    if (Number.isNaN(parsedOwner) || parsedOwner < 1) {
+      return res.status(400).json({ error: 'owner_id inválido' });
+    }
+    ownerId = parsedOwner;
+  }
   const sanitizedTags = sanitizeTags(tags);
   const tagsJson = JSON.stringify(sanitizedTags);
   const sanitizedChecklist = sanitizeChecklist(checklist);
   const checklistJson = JSON.stringify(sanitizedChecklist);
 
-  const insertTask = (finalStatus, parentIdValue) => {
+  const proceedInsert = (finalStatus, parentIdValue, finalOwnerId) => {
     db.get("SELECT MAX(id) as lastId FROM tasks", [], (err, row) => {
       if (err) return res.status(500).json({ error: err.message });
       const newId = (row?.lastId || 0) + 1;
       const code = `TASK-${String(newId).padStart(3, '0')}`;
       db.run(
-        "INSERT INTO tasks (title, status, priority, description, assignee, parent_id, code, tags, checklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [title, finalStatus, priority, description, assignee, parentIdValue, code, tagsJson, checklistJson],
+        "INSERT INTO tasks (title, status, priority, description, assignee, parent_id, code, tags, checklist, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [title, finalStatus, priority, description, assignee, parentIdValue, code, tagsJson, checklistJson, finalOwnerId],
         function (err2) {
           if (err2) return res.status(500).json({ error: err2.message });
           const payload = {
@@ -320,11 +368,30 @@ app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
             parent_id: parentIdValue,
             updated_at: new Date().toISOString(),
             tags: sanitizedTags,
-            checklist: sanitizedChecklist
+            checklist: sanitizedChecklist,
+            owner_id: finalOwnerId
           };
           res.json(payload);
         }
       );
+    });
+  };
+  const insertTask = (finalStatus, parentIdValue, finalOwnerId) => {
+    if (finalOwnerId === null || finalOwnerId === undefined || finalOwnerId === req.user.id) {
+      proceedInsert(finalStatus, parentIdValue, finalOwnerId ?? null);
+      return;
+    }
+    ensureOwnerExists(finalOwnerId, db, (ownerErr, validatedOwnerId) => {
+      if (ownerErr) {
+        if (ownerErr.message === 'OWNER_NOT_FOUND') {
+          return res.status(400).json({ error: 'owner_id não encontrado' });
+        }
+        if (ownerErr.message === 'INVALID_OWNER') {
+          return res.status(400).json({ error: 'owner_id inválido' });
+        }
+        return res.status(500).json({ error: ownerErr.message });
+      }
+      proceedInsert(finalStatus, parentIdValue, validatedOwnerId);
     });
   };
 
@@ -333,7 +400,7 @@ app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
     if (Number.isNaN(parentId) || parentId < 1) {
       return res.status(400).json({ error: 'parent_id inválido' });
     }
-    db.get("SELECT id, status, parent_id FROM tasks WHERE id = ?", [parentId], (err, parentTask) => {
+    db.get("SELECT id, status, parent_id, owner_id FROM tasks WHERE id = ?", [parentId], (err, parentTask) => {
       if (err) return res.status(500).json({ error: err.message });
       if (!parentTask) return res.status(400).json({ error: 'Tarefa pai não encontrada' });
       if (parentTask.parent_id) {
@@ -342,13 +409,17 @@ app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
       if (parentTask.status !== 'backlog') {
         return res.status(400).json({ error: 'Só é possível adicionar subtarefa enquanto o card pai estiver no backlog' });
       }
+      if (!requesterIsAdmin && parentTask.owner_id && parentTask.owner_id !== req.user.id) {
+        return res.status(403).json({ error: 'Sem permissão para adicionar subtarefa neste card' });
+      }
+      const effectiveOwner = parentTask.owner_id || ownerId;
       const parentStatus = parentTask.status;
       const finalStatus = VALID_STATUSES.includes(status) ? status : parentStatus;
-      insertTask(finalStatus, parentId);
+      insertTask(finalStatus, parentId, effectiveOwner);
     });
   } else {
     const finalStatus = VALID_STATUSES.includes(status) ? status : 'backlog';
-    insertTask(finalStatus, null);
+    insertTask(finalStatus, null, ownerId);
   }
 });
 
@@ -360,9 +431,13 @@ app.put("/tasks/:id", authMiddleware, audit('update_task'), (req, res) => {
   }
   const { status, priority, description, assignee, title, parent_id, tags, checklist } = req.body;
 
+  const requesterIsAdmin = req.user.role === 'admin';
   db.get('SELECT * FROM tasks WHERE id = ?', [taskId], (err, currentTask) => {
     if (err) return res.status(500).json({ error: err.message });
     if (!currentTask) return res.status(404).json({ error: 'Tarefa não encontrada' });
+    if (!requesterIsAdmin && currentTask.owner_id && currentTask.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'Sem permissão para alterar este card' });
+    }
 
     const fields = [];
     const values = [];
@@ -419,20 +494,59 @@ app.put("/tasks/:id", authMiddleware, audit('update_task'), (req, res) => {
       values.push(JSON.stringify(sanitizedChecklist));
     }
 
+    let ownerValidationTarget;
+
+    if (req.body.owner_id !== undefined) {
+      if (!requesterIsAdmin) {
+        return res.status(403).json({ error: 'Somente administradores podem reatribuir cards' });
+      }
+      if (req.body.owner_id === null || req.body.owner_id === '') {
+        fields.push('owner_id = ?');
+        values.push(null);
+        ownerValidationTarget = null;
+      } else {
+        const newOwnerId = parseInt(req.body.owner_id, 10);
+        if (Number.isNaN(newOwnerId) || newOwnerId < 1) {
+          return res.status(400).json({ error: 'owner_id inválido' });
+        }
+        fields.push('owner_id = ?');
+        values.push(newOwnerId);
+        ownerValidationTarget = newOwnerId;
+      }
+    }
+
     const finalizeUpdate = () => {
       if (fields.length === 0) {
         return res.status(400).json({ error: 'Nenhum campo para atualizar.' });
       }
-      fields.push("updated_at = datetime('now')");
-      values.push(taskId);
-      db.run(
-        `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`,
-        values,
-        function (updateErr) {
-          if (updateErr) return res.status(500).json({ error: updateErr.message });
-          res.json({ updated: this.changes });
-        }
-      );
+      const performUpdate = () => {
+        fields.push("updated_at = datetime('now')");
+        values.push(taskId);
+        db.run(
+          `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`,
+          values,
+          function (updateErr) {
+            if (updateErr) return res.status(500).json({ error: updateErr.message });
+            res.json({ updated: this.changes });
+          }
+        );
+      };
+      if (ownerValidationTarget && ownerValidationTarget !== currentTask.owner_id) {
+        ensureOwnerExists(ownerValidationTarget, db, (ownerErr) => {
+          if (ownerErr) {
+            if (ownerErr.message === 'OWNER_NOT_FOUND') {
+              return res.status(400).json({ error: 'owner_id não encontrado' });
+            }
+            if (ownerErr.message === 'INVALID_OWNER') {
+              return res.status(400).json({ error: 'owner_id inválido' });
+            }
+            return res.status(500).json({ error: ownerErr.message });
+          }
+          performUpdate();
+        });
+      } else {
+        performUpdate();
+      }
     };
 
     if (parent_id !== undefined) {
@@ -448,11 +562,18 @@ app.put("/tasks/:id", authMiddleware, audit('update_task'), (req, res) => {
         if (newParentId === taskId) {
           return res.status(400).json({ error: 'Uma tarefa não pode ser pai de si mesma' });
         }
-        db.get('SELECT id, parent_id FROM tasks WHERE id = ?', [newParentId], (parentErr, parentTask) => {
+        db.get('SELECT id, parent_id, owner_id FROM tasks WHERE id = ?', [newParentId], (parentErr, parentTask) => {
           if (parentErr) return res.status(500).json({ error: parentErr.message });
           if (!parentTask) return res.status(400).json({ error: 'Tarefa pai não encontrada' });
           if (parentTask.parent_id) {
             return res.status(400).json({ error: 'Uma subtarefa não pode ter seus próprios filhos' });
+          }
+          if (!requesterIsAdmin) {
+            const allowedOwner = parentTask.owner_id || req.user.id;
+            const currentOwner = currentTask.owner_id || req.user.id;
+            if (allowedOwner !== req.user.id || currentOwner !== req.user.id) {
+              return res.status(403).json({ error: 'Sem permissão para vincular a este card' });
+            }
           }
           fields.push('parent_id = ?');
           values.push(newParentId);
@@ -471,9 +592,17 @@ app.delete("/tasks/:id", authMiddleware, audit('delete_task'), (req, res) => {
   if (Number.isNaN(taskId) || taskId < 1) {
     return res.status(400).json({ error: 'ID inválido' });
   }
-  db.run("DELETE FROM tasks WHERE id = ? OR parent_id = ?", [taskId, taskId], function (err) {
+  const requesterIsAdmin = req.user.role === 'admin';
+  db.get('SELECT owner_id FROM tasks WHERE id = ?', [taskId], (err, task) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ deleted: this.changes });
+    if (!task) return res.status(404).json({ error: 'Tarefa não encontrada' });
+    if (!requesterIsAdmin && task.owner_id && task.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'Sem permissão para remover este card' });
+    }
+    db.run("DELETE FROM tasks WHERE id = ? OR parent_id = ?", [taskId, taskId], function (deleteErr) {
+      if (deleteErr) return res.status(500).json({ error: deleteErr.message });
+      res.json({ deleted: this.changes });
+    });
   });
 });
 

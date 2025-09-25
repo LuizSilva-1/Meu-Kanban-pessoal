@@ -16,6 +16,16 @@
     "build": "react-scripts build"
   },
   "proxy": "http://backend:5000",
+  "overrides": {
+    "@svgr/webpack": "6.5.1",
+    "@svgr/plugin-svgo": "6.5.1",
+    "svgo": "2.8.0",
+    "css-select": "5.1.0",
+    "nth-check": "2.0.1",
+    "resolve-url-loader": "5.0.0",
+    "postcss": "8.4.35",
+    "webpack-dev-server": "4.15.2"
+  },
   "browserslist": {
     "production": [
       ">0.2%",

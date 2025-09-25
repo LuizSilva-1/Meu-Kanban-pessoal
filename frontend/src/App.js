@@ -205,7 +205,7 @@ function exportHistoricoCSV(historico) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import axios from "axios";
 import "./App.css";
@@ -350,11 +350,15 @@ function normalizeTask(raw = {}) {
     }
   }
   const checklist = sanitizeChecklistClient(checklistSource);
+  const ownerId = raw.owner_id !== undefined && raw.owner_id !== null ? Number(raw.owner_id) : null;
+  const ownerName = raw.owner_username || raw.ownerName || null;
   return {
     ...raw,
     tags,
     checklist,
-    updated_at: raw.updated_at || raw.updatedAt || null
+    updated_at: raw.updated_at || raw.updatedAt || null,
+    owner_id: ownerId,
+    owner_username: ownerName
   };
 }
 
@@ -496,20 +500,32 @@ function App() {
 
   const [user, setUser] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("kanbanUser"));
+      const stored = JSON.parse(localStorage.getItem("kanbanUser"));
+      if (stored && stored.id !== undefined && stored.id !== null) {
+        stored.id = Number(stored.id);
+      }
+      return stored;
     } catch {
       return null;
     }
   });
 
+  const isAdmin = user?.role === 'admin';
+
   const handleAuth = (data) => {
-    setUser(data);
-    localStorage.setItem("kanbanUser", JSON.stringify(data));
+    const normalized = data && data.id !== undefined && data.id !== null
+      ? { ...data, id: Number(data.id) }
+      : data;
+    setUser(normalized);
+    localStorage.setItem("kanbanUser", JSON.stringify(normalized));
   };
 
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem("kanbanUser");
+    setOwnerFilter('all');
+    setAdminUsers([]);
+    setTasks([]);
   };
 
   // Intercepta requisições para enviar token
@@ -521,8 +537,23 @@ function App() {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (!isAdmin || !user?.token) {
+      setAdminUsers([]);
+      setOwnerFilter('all');
+      return;
+    }
+    axios.get('/api/users')
+      .then(res => setAdminUsers(res.data || []))
+      .catch(err => {
+        if (err.response?.status === 401) handleLogout();
+      });
+  }, [isAdmin, user]);
+
 
   const [tasks, setTasks] = useState([]);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [ownerFilter, setOwnerFilter] = useState('all');
   // Função para drag & drop
   const onDragEnd = (result) => {
     if (selectionMode) return;
@@ -556,10 +587,23 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [detailEdit, setDetailEdit] = useState(false);
-  const [detailForm, setDetailForm] = useState({ description: '', priority: 'media', assignee: '', tags: [], checklist: [] });
+  const [detailForm, setDetailForm] = useState({ description: '', priority: 'media', assignee: '', tags: [], checklist: [], owner_id: null });
   const [newTagValue, setNewTagValue] = useState('');
   const [newChecklistText, setNewChecklistText] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null); // id da tarefa a confirmar
+
+  const currentUserId = user?.id !== undefined && user?.id !== null ? Number(user.id) : null;
+
+  const ownerNameById = useMemo(() => {
+    const entries = new Map();
+    if (currentUserId && user?.username) {
+      entries.set(currentUserId, user.username);
+    }
+    adminUsers.forEach(u => {
+      entries.set(Number(u.id), u.username);
+    });
+    return entries;
+  }, [adminUsers, currentUserId, user?.username]);
 
   // Dark mode
   const [darkMode, setDarkMode] = useState(() => {
@@ -757,7 +801,8 @@ function App() {
       priority: detailTask.priority && priorityOptions.includes(detailTask.priority) ? detailTask.priority : 'media',
       assignee: detailTask.assignee || '',
       tags: sanitizeTagsClient(detailTask.tags),
-      checklist: sanitizeChecklistClient(detailTask.checklist)
+      checklist: sanitizeChecklistClient(detailTask.checklist),
+      owner_id: detailTask.owner_id ?? null
     });
     setDetailEdit(false);
     setNewTagValue('');
@@ -770,6 +815,13 @@ function App() {
     const trimmedAssignee = detailForm.assignee.trim();
     const normalizedPriority = priorityOptions.includes(detailForm.priority) ? detailForm.priority : 'media';
     const normalizedTags = sanitizeTagsClient(detailForm.tags);
+    const normalizedChecklist = sanitizeChecklistClient(detailForm.checklist);
+    const normalizedOwner = detailForm.owner_id === null || detailForm.owner_id === undefined
+      ? null
+      : Number(detailForm.owner_id);
+    const currentOwner = detailTask.owner_id === undefined || detailTask.owner_id === null
+      ? null
+      : Number(detailTask.owner_id);
 
     const updates = {};
     if (trimmedDescription !== (detailTask.description || '')) {
@@ -783,6 +835,12 @@ function App() {
     }
     if (JSON.stringify(normalizedTags) !== JSON.stringify(sanitizeTagsClient(detailTask.tags))) {
       updates.tags = normalizedTags;
+    }
+    if (JSON.stringify(normalizedChecklist) !== JSON.stringify(sanitizeChecklistClient(detailTask.checklist))) {
+      updates.checklist = normalizedChecklist;
+    }
+    if ((normalizedOwner ?? null) !== (currentOwner ?? null)) {
+      updates.owner_id = normalizedOwner;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -799,17 +857,20 @@ function App() {
         if (!prev) return prev;
         const nextTags = updates.tags ? sanitizeTagsClient(updates.tags) : prev.tags;
         const nextChecklist = updates.checklist ? sanitizeChecklistClient(updates.checklist) : prev.checklist;
-        return { ...prev, ...updates, tags: nextTags, checklist: nextChecklist, updated_at: nowIso };
+        const nextOwner = updates.owner_id !== undefined ? updates.owner_id : prev.owner_id;
+        return { ...prev, ...updates, tags: nextTags, checklist: nextChecklist, owner_id: nextOwner, updated_at: nowIso };
       });
       setDetailForm(prev => ({
         description: updates.description ?? prev.description,
         priority: updates.priority ?? prev.priority,
         assignee: updates.assignee ?? prev.assignee,
         tags: sanitizeTagsClient(updates.tags ?? prev.tags),
-        checklist: sanitizeChecklistClient(updates.checklist ?? prev.checklist)
+        checklist: sanitizeChecklistClient(updates.checklist ?? prev.checklist),
+        owner_id: updates.owner_id ?? prev.owner_id
       }));
       setDetailEdit(false);
       setNewTagValue('');
+      setNewChecklistText('');
       toast.success('Detalhes atualizados');
     }).catch(err => {
       if (err.response?.status === 401) {
@@ -870,11 +931,24 @@ function App() {
   };
 
 
-  useEffect(() => {
-    if (user?.token) {
-      axios.get("/tasks").then(res => setTasks(res.data.map(normalizeTask)));
+  const fetchTasks = useCallback(() => {
+    if (!user?.token) return;
+    const params = {};
+    if (isAdmin && ownerFilter !== 'all') {
+      params.owner = ownerFilter;
     }
-  }, [user]);
+    axios.get("/tasks", { params })
+      .then(res => setTasks(res.data.map(normalizeTask)))
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+        }
+      });
+  }, [user, isAdmin, ownerFilter]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
 
   useEffect(() => {
     if (!detailTask) {
@@ -882,7 +956,7 @@ function App() {
       setHistoryError('');
       setHistoryLoading(false);
       setDetailEdit(false);
-      setDetailForm({ description: '', priority: 'media', assignee: '', tags: [], checklist: [] });
+      setDetailForm({ description: '', priority: 'media', assignee: '', tags: [], checklist: [], owner_id: null });
       setNewTagValue('');
       setNewChecklistText('');
       return;
@@ -1163,6 +1237,12 @@ function App() {
       border: isChild ? '1px solid #bbb' : '2px solid #1976d2',
       marginBottom: isListMode ? 12 : 8
     };
+    const ownerId = task.owner_id === undefined || task.owner_id === null ? null : Number(task.owner_id);
+    const ownerName = ownerId === null
+      ? 'Sem responsável'
+      : (ownerNameById.get(ownerId) || task.owner_username || `Usuário ${ownerId}`);
+    const displayOwnerName = ownerId !== null && ownerId === currentUserId ? 'Você' : ownerName;
+    const showOwnerBadge = isAdmin || (currentUserId !== null && ownerId !== null && ownerId !== currentUserId);
 
     const handleCardClick = (event) => {
       if (selectionMode) {
@@ -1229,6 +1309,11 @@ function App() {
             {isChild && (
               <span style={{ background: '#f5f5f5', color: '#555', borderRadius: 10, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>
                 Sub de {parentTask?.code || `#${task.parent_id}`}
+              </span>
+            )}
+            {showOwnerBadge && (
+              <span className="kanban-owner-pill" title={`Responsável: ${displayOwnerName}`}>
+                👤 {displayOwnerName}
               </span>
             )}
             <span className={`priority-pill priority-${priorityValue}`}>
@@ -1483,6 +1568,22 @@ function App() {
         >
           {listMode ? 'Modo colunas' : 'Modo lista'}
         </button>
+        {isAdmin && (
+          <select
+            className="kanban-input owner-filter"
+            style={{ maxWidth: 240, minWidth: 160 }}
+            value={ownerFilter}
+            onChange={e => setOwnerFilter(e.target.value)}
+          >
+            <option value="all">Todos os responsáveis</option>
+            <option value="none">Sem responsável</option>
+            {adminUsers.map(u => (
+              <option key={u.id} value={String(u.id)}>
+                {u.username}{currentUserId && Number(u.id) === currentUserId ? ' (você)' : ''}
+              </option>
+            ))}
+          </select>
+        )}
         {availableTags.length > 0 && (
           <div className="tag-filter">
             {availableTags.map(tag => (
@@ -1728,6 +1829,31 @@ function App() {
                 />
               ) : (
                 <strong>{detailTask.assignee || '—'}</strong>
+              )}
+            </div>
+            <div className="detail-row">
+              <span>Dono do card:</span>
+              {detailEdit && isAdmin ? (
+                <select
+                  className="detail-select"
+                  value={detailForm.owner_id === null || detailForm.owner_id === undefined ? '' : String(detailForm.owner_id)}
+                  onChange={e => handleDetailFieldChange('owner_id', e.target.value)}
+                >
+                  <option value="">Sem responsável</option>
+                  {adminUsers.map(u => (
+                    <option key={u.id} value={String(u.id)}>
+                      {u.username}{currentUserId && Number(u.id) === currentUserId ? ' (você)' : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <strong>
+                  {detailTask.owner_id === null || detailTask.owner_id === undefined
+                    ? 'Sem responsável'
+                    : (detailTask.owner_id === currentUserId
+                      ? 'Você'
+                      : (ownerNameById.get(Number(detailTask.owner_id)) || detailTask.owner_username || `Usuário ${detailTask.owner_id}`))}
+                </strong>
               )}
             </div>
             {detailTask.parent_id && (
