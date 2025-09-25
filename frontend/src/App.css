@@ -25,6 +25,115 @@
 .dark-mode .kanban-card-title {
   color: #ffeb3b;
 }
+.dark-mode .kanban-card-input {
+  background: #232f3e;
+  color: #ffeb3b;
+  border: 1px solid #ff9900;
+}
+.dark-mode .kanban-card-input:focus {
+  box-shadow: 0 0 0 2px rgba(255, 153, 0, 0.2);
+}
+.dark-mode .kanban-child-progress {
+  background: rgba(67, 160, 71, 0.2);
+  color: #81c784;
+}
+.dark-mode .kanban-progress {
+  background: rgba(25, 118, 210, 0.18);
+}
+.dark-mode .kanban-progress-header {
+  color: #90caf9;
+}
+.dark-mode .kanban-progress-bar {
+  background: rgba(144, 202, 249, 0.2);
+}
+.dark-mode .kanban-progress-bar-fill {
+  background: linear-gradient(90deg, #64b5f6 0%, #bbdefb 100%);
+}
+.dark-mode .priority-baixa {
+  background: rgba(21, 101, 192, 0.2);
+  color: #90caf9;
+}
+.dark-mode .priority-media {
+  background: rgba(239, 108, 0, 0.2);
+  color: #ffcc80;
+}
+.dark-mode .priority-alta {
+  background: rgba(198, 40, 40, 0.3);
+  color: #ef9a9a;
+}
+.dark-mode .status-pill-blocked {
+  background: rgba(198, 40, 40, 0.35);
+  color: #ff8a80;
+}
+.dark-mode .status-blocked {
+  border-color: #ff8a80 !important;
+  box-shadow: 0 0 0 2px rgba(255, 138, 128, 0.25);
+}
+.dark-mode .kanban-card-focused {
+  outline-color: #ffeb3b;
+}
+.dark-mode .kanban-card-footer {
+  color: #b0bec5;
+}
+.dark-mode .kanban-tag {
+  background: rgba(21, 101, 192, 0.25);
+  color: #90caf9;
+}
+.dark-mode .kanban-checklist-summary {
+  color: #90caf9;
+}
+.dark-mode .detail-modal-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.dark-mode .detail-modal-header h2,
+.dark-mode .detail-modal-body {
+  color: #ffeb3b;
+}
+.dark-mode .detail-row span,
+.dark-mode .detail-block span {
+  color: #90caf9;
+}
+.dark-mode .detail-row strong {
+  color: #fff;
+}
+.dark-mode .detail-block p {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eee;
+}
+.dark-mode .detail-block ul,
+.dark-mode .detail-block li {
+  color: #eee;
+}
+.dark-mode .detail-tag-chip {
+  background: rgba(41, 182, 246, 0.2);
+  color: #81d4fa;
+}
+.dark-mode .detail-tag-chip button:hover {
+  color: #ff8a80;
+}
+.dark-mode .detail-tag-input input {
+  background: #232f3e;
+  color: #ffeb3b;
+  border: 1px solid #ff9900;
+}
+.dark-mode .detail-tags-empty {
+  color: #b0bec5;
+}
+.dark-mode .detail-checklist-text,
+.dark-mode .detail-checklist-add input {
+  background: #232f3e;
+  color: #ffeb3b;
+  border: 1px solid #ff9900;
+}
+.dark-mode .detail-checklist-remove {
+  color: #ff8a80;
+}
+.dark-mode .detail-checklist-remove:hover {
+  color: #ff5252;
+}
+.dark-mode .detail-checklist-view span.done {
+  color: #90a4ae;
+}
 .dark-mode .kanban-btn {
   background: #ff9900;
   color: #232f3e;
@@ -37,10 +146,136 @@
   background: #43a047;
   color: #fff;
 }
-.dark-mode .kanban-status-dropdown {
+.dark-mode .view-filter {
+  background: rgba(255, 153, 0, 0.15);
+}
+.dark-mode .view-filter-btn {
+  color: #ffeb3b;
+}
+.dark-mode .view-filter-btn:hover {
+  background: rgba(255, 235, 59, 0.15);
+}
+.dark-mode .view-filter-btn.active {
+  background: #ff9900;
+  color: #232f3e;
+}
+.dark-mode .tag-filter-btn {
+  border-color: #ff9900;
+  color: #ffeb3b;
+}
+.dark-mode .tag-filter-btn:hover {
+  background: rgba(255, 235, 59, 0.15);
+}
+.dark-mode .tag-filter-btn.active {
+  background: #ff9900;
+  color: #232f3e;
+}
+.dark-mode .tag-filter-btn.clear {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #eceff1;
+}
+.dark-mode .tag-filter-btn.clear:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.dark-mode .kanban-icon-btn {
+  background: #ff9900;
+  color: #232f3e;
+}
+.dark-mode .kanban-icon-btn:hover {
+  background: #ffab2d;
+}
+.dark-mode .kanban-icon-btn.confirm {
+  background: #43a047;
+  color: #fff;
+}
+.dark-mode .kanban-icon-btn.confirm:hover {
+  background: #2e7d32;
+}
+.dark-mode .kanban-icon-btn.danger {
+  background: #e53935;
+  color: #fff;
+}
+.dark-mode .kanban-icon-btn.danger:hover {
+  background: #c62828;
+}
+
+.search-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: -8px auto 18px;
+  max-width: 900px;
+}
+
+.search-chip {
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px #0002;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.search-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px #0003;
+}
+
+.dark-mode .search-chip {
+  background: rgba(25, 118, 210, 0.8);
+  color: #ffeb3b;
+}
+.dark-mode .kanban-icon-btn.info {
+  background: #29b6f6;
+  color: #0d1b2a;
+}
+.dark-mode .kanban-icon-btn.info:hover {
+  background: #03a9f4;
+}
+.dark-mode .selection-toggle.active {
+  background: #43a047;
+}
+.dark-mode .bulk-actions select {
+  border-color: #ff9900;
+  color: #ffeb3b;
+  background: #232f3e;
+}
+.dark-mode .kanban-btn.secondary {
+  background: #455a64;
+  color: #fff;
+}
+.dark-mode .kanban-btn.secondary:hover {
+  background: #37474f;
+}
+.dark-mode .card-select-control span {
+  border-color: #ff9900;
+  background: #232f3e;
+}
+.dark-mode .card-select-control input:checked + span {
+  background: #ff9900;
+}
+.dark-mode .kanban-card-selected {
+  box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.35);
+}
+.dark-mode .detail-input,
+.dark-mode .detail-select,
+.dark-mode .detail-textarea {
   background: #232f3e;
   color: #ffeb3b;
-  border: 1px solid #888;
+  border: 1px solid #ff9900;
+}
+.dark-mode .detail-input:focus,
+.dark-mode .detail-select:focus,
+.dark-mode .detail-textarea:focus {
+  box-shadow: 0 0 0 2px rgba(255, 153, 0, 0.2);
+}
+.dark-mode .kanban-btn.subtask {
+  background: #43a047;
+  color: #fff;
 }
 .dark-mode .lembrete-box {
   background: #232f3e;
@@ -198,10 +433,6 @@
   width: 100%;
   transition: border 0.2s;
 }
-.kanban-status-dropdown:focus {
-  border: 1.5px solid #1976d2;
-}
-
 .kanban-bg {
   min-height: 100vh;
   background: url('./image/unnamed (2).jpg') center center/cover no-repeat fixed, linear-gradient(135deg, #232f3e 0%, #232f3e 60%, #ff9900 100%);
@@ -283,14 +514,30 @@ body {
   color: #fff;
 }
 .kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   font-weight: 700;
   font-size: 1.1rem;
   border-radius: 12px;
-  padding: 8px 0;
+  padding: 8px 12px;
   margin-bottom: 12px;
-  text-align: center;
   box-shadow: 0 2px 8px #0001;
   letter-spacing: 1px;
+}
+.kanban-column-header-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kanban-column-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1976d2;
+  background: rgba(25, 118, 210, 0.15);
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 .kanban-column:hover {
   box-shadow: 0 8px 24px #0002;
@@ -306,6 +553,136 @@ body {
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
+}
+.view-filter {
+  display: flex;
+  gap: 8px;
+  background: rgba(25, 118, 210, 0.08);
+  border-radius: 999px;
+  padding: 4px;
+  height: 38px;
+}
+.view-filter-btn {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #1976d2;
+  transition: background 0.2s, color 0.2s;
+}
+.view-filter-btn.active {
+  background: #1976d2;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.25);
+}
+.view-filter-btn:hover {
+  background: rgba(25, 118, 210, 0.15);
+}
+.tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.tag-filter-btn {
+  border: 1px solid #1976d2;
+  background: transparent;
+  color: #1976d2;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.tag-filter-btn.active {
+  background: #1976d2;
+  color: #fff;
+}
+.tag-filter-btn:hover {
+  background: rgba(25, 118, 210, 0.1);
+}
+.tag-filter-btn.clear {
+  border-color: #9e9e9e;
+  color: #616161;
+}
+.tag-filter-btn.clear:hover {
+  background: #eceff1;
+}
+.selection-toggle.active {
+  background: #43a047;
+}
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.bulk-actions select {
+  border: 1px solid #1976d2;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 14px;
+  color: #1976d2;
+  background: #fff;
+}
+.bulk-actions select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+.kanban-btn.secondary {
+  background: #607d8b;
+}
+.kanban-btn.secondary:hover {
+  background: #546e7a;
+}
+.kanban-btn.secondary.active {
+  background: #1976d2;
+}
+.kanban-btn.secondary.active:hover {
+  background: #0d47a1;
+}
+.card-select-control {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+}
+.card-select-control input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.card-select-control span {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #1976d2;
+  border-radius: 5px;
+  display: inline-block;
+  background: #fff;
+  position: relative;
+}
+.card-select-control input:checked + span {
+  background: #1976d2;
+}
+.card-select-control input:checked + span::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: 2px solid #fff;
+  border-top: 0;
+  border-left: 0;
+  transform: rotate(45deg);
+}
+.kanban-card-selected {
+  box-shadow: 0 0 0 3px rgba(255, 153, 0, 0.35);
 }
 .kanban-input {
   flex: 1 1 0;
@@ -349,6 +726,103 @@ body {
 .kanban-btn.delete {
   background: #e53935;
 }
+.kanban-icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: #1976d2;
+  color: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px #0002;
+  transition: transform 0.15s, background 0.2s;
+}
+.kanban-icon-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+  background: #0d47a1;
+}
+.kanban-icon-btn:active {
+  transform: scale(0.95);
+}
+.kanban-icon-btn.confirm {
+  background: #388e3c;
+}
+.kanban-icon-btn.confirm:hover {
+  background: #2e7d32;
+}
+.kanban-icon-btn.danger {
+  background: #c62828;
+}
+.kanban-icon-btn.danger:hover {
+  background: #b71c1c;
+}
+.kanban-icon-btn.info {
+  background: #0277bd;
+}
+.kanban-icon-btn.info:hover {
+  background: #01579b;
+}
+.kanban-icon-btn.export {
+  background: rgba(25, 118, 210, 0.85);
+  font-size: 16px;
+}
+.kanban-icon-btn.export:hover {
+  background: #0d47a1;
+}
+.dark-mode .kanban-icon-btn.export {
+  background: rgba(144, 202, 249, 0.35);
+  color: #ffeb3b;
+}
+.dark-mode .kanban-column-count {
+  color: #ffeb3b;
+  background: rgba(255, 235, 59, 0.15);
+}
+.kanban-list-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 0 12px 24px;
+}
+
+.kanban-list-section {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 6px 24px #0001;
+}
+
+.kanban-list-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kanban-list-card {
+  width: 100%;
+}
+
+.kanban-empty {
+  padding: 18px;
+  text-align: center;
+  border: 2px dashed rgba(25, 118, 210, 0.25);
+  border-radius: 12px;
+  color: #607d8b;
+  font-weight: 600;
+}
+
+.dark-mode .kanban-list-section {
+  background: rgba(35, 47, 62, 0.85);
+  box-shadow: 0 6px 24px #0004;
+}
+
+.dark-mode .kanban-empty {
+  border-color: rgba(144, 202, 249, 0.35);
+  color: #b0bec5;
+}
 .kanban-btn:hover {
   filter: brightness(1.1);
   transform: translateY(-2px) scale(1.04);
@@ -369,6 +843,10 @@ body {
   box-shadow: 0 6px 18px #0003;
   transform: translateY(-2px) scale(1.02);
 }
+.kanban-card-focused {
+  outline: 2px solid #ff9900;
+  outline-offset: 3px;
+}
 .kanban-card-content {
   margin-bottom: 2px;
 }
@@ -378,8 +856,367 @@ body {
   font-weight: 600;
   word-break: break-word;
 }
+.kanban-card-input {
+  width: 100%;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #232f3e;
+  outline: none;
+}
+.kanban-card-input:focus {
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+.kanban-child-progress {
+  background: #e0f2f1;
+  color: #00796b;
+  border-radius: 10px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.kanban-progress {
+  margin: 4px 0 8px 0;
+  padding: 6px 8px;
+  background: rgba(25, 118, 210, 0.06);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kanban-progress-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #1e3a8a;
+  font-weight: 600;
+}
+.kanban-progress-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(25, 118, 210, 0.15);
+  overflow: hidden;
+}
+.kanban-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1976d2 0%, #42a5f5 100%);
+}
+.priority-pill {
+  border-radius: 10px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.priority-baixa {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+.priority-media {
+  background: #fff3e0;
+  color: #ef6c00;
+}
+.priority-alta {
+  background: #ffebee;
+  color: #c62828;
+}
+.status-pill-blocked {
+  background: #ffebee;
+  color: #c62828;
+  border-radius: 10px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.status-blocked {
+  border: 2px solid #c62828 !important;
+  box-shadow: 0 0 0 2px rgba(198, 40, 40, 0.2);
+}
 .kanban-card-actions {
   display: flex;
   gap: 6px;
   align-items: center;
+}
+.kanban-card-footer {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #607d8b;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kanban-updated-text {
+  display: inline-block;
+}
+.kanban-checklist-summary {
+  font-weight: 600;
+  color: #455a64;
+}
+.kanban-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+.kanban-tag {
+  background: #e3f2fd;
+  color: #1565c0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+.detail-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+.detail-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #232f3e;
+}
+.detail-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.detail-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: #232f3e;
+}
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-size: 14px;
+  gap: 6px;
+}
+.detail-row span {
+  color: #607d8b;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.detail-row strong {
+  max-width: 100%;
+  text-align: left;
+  font-size: 15px;
+  color: #232f3e;
+}
+.detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.detail-block span {
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 700;
+  color: #607d8b;
+  letter-spacing: 0.5px;
+}
+.detail-block p {
+  margin: 0;
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 10px 12px;
+  line-height: 1.4;
+  min-height: 60px;
+}
+.detail-input,
+.detail-select {
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 14px;
+  color: #232f3e;
+  min-width: 180px;
+}
+.detail-select {
+  background: #fff;
+}
+.detail-textarea {
+  border: 1px solid #bbb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  min-height: 100px;
+  resize: vertical;
+  color: #232f3e;
+}
+.detail-input:focus,
+.detail-select:focus,
+.detail-textarea:focus {
+  border-color: #1976d2;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+.detail-block ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #424242;
+}
+.detail-block li {
+  margin-bottom: 4px;
+}
+.detail-history {
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.detail-history li strong {
+  text-transform: uppercase;
+  font-size: 11px;
+  color: #1976d2;
+}
+.detail-tags-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.detail-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.detail-tags-empty {
+  font-size: 12px;
+  color: #90a4ae;
+}
+.detail-tag-chip {
+  background: rgba(25, 118, 210, 0.1);
+  color: #1565c0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.detail-tag-chip button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+}
+.detail-tag-chip button:hover {
+  color: #b71c1c;
+}
+.detail-tag-input {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.detail-tag-input input {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.detail-tag-input input:focus {
+  border-color: #1976d2;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+.detail-tags-view {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.detail-checklist-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.detail-checklist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.detail-checklist-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.detail-checklist-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+.detail-checklist-text {
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.detail-checklist-text:focus {
+  border-color: #1976d2;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+.detail-checklist-remove {
+  border: none;
+  background: transparent;
+  color: #c62828;
+  cursor: pointer;
+  font-size: 14px;
+}
+.detail-checklist-remove:hover {
+  color: #b71c1c;
+}
+.detail-checklist-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.detail-checklist-add input {
+  flex: 1;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.detail-checklist-add input:focus {
+  border-color: #1976d2;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+.detail-checklist-view {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.detail-checklist-view li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.detail-checklist-view input[type="checkbox"] {
+  pointer-events: none;
+  width: 16px;
+  height: 16px;
+}
+.detail-checklist-view span.done {
+  text-decoration: line-through;
+  color: #90a4ae;
+}
+.dark-mode .detail-history li strong {
+  color: #29b6f6;
 }
