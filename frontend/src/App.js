@@ -191,9 +191,15 @@ function AuditLogModal({ isOpen, onRequestClose }) {
 }
 // Função utilitária para exportar CSV
 function exportHistoricoCSV(historico) {
-  if (!historico.length) return;
-  const header = 'Título,Data de Remoção\n';
-  const rows = historico.map(t => `"${t.title.replace(/"/g, '""')}",${t.deletedAt ? new Date(t.deletedAt).toLocaleString() : ''}`);
+  if (!Array.isArray(historico) || historico.length === 0) return;
+  const header = 'Código,Título,Status Original,Prioridade,Dono do Card,Responsável,Tags,Removido em,Removido por,Restaurado em,Restaurado por\n';
+  const rows = historico.map(item => {
+    const safe = (value = '') => String(value || '').replace(/"/g, '""');
+    const tags = Array.isArray(item.tags) ? item.tags.join(' | ') : '';
+    const deletedAt = item.deleted_at ? new Date(item.deleted_at).toLocaleString() : '';
+    const restoredAt = item.restored_at ? new Date(item.restored_at).toLocaleString() : '';
+    return `"${safe(item.code)}","${safe(item.title)}","${safe(item.original_status)}","${safe(item.priority)}","${safe(item.owner_username)}","${safe(item.assignee)}","${safe(tags)}","${safe(deletedAt)}","${safe(item.deleted_by)}","${safe(restoredAt)}","${safe(item.restored_by)}"`;
+  });
   const csv = header + rows.join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
@@ -205,7 +211,7 @@ function exportHistoricoCSV(historico) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import axios from "axios";
 import "./App.css";
@@ -213,36 +219,278 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 // Histórico de tarefas removidas do concluído
-function useHistorico() {
-  const [historico, setHistorico] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("historicoTarefas")) || [];
-    } catch {
-      return [];
-    }
-  });
+function useHistoricoRecords({ user, isAdmin, handleLogout }) {
+  const [historico, setHistorico] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [filters, setFilters] = useState(() => ({ ...HISTORICO_DEFAULT_FILTERS }));
+  const filtersRef = useRef(filters);
+
   useEffect(() => {
-    localStorage.setItem("historicoTarefas", JSON.stringify(historico));
-  }, [historico]);
-  return [historico, setHistorico];
+    filtersRef.current = filters;
+  }, [filters]);
+
+  const buildParams = useCallback((input) => {
+    const params = {};
+    if (input.search && input.search.trim()) {
+      params.search = input.search.trim();
+    }
+    if (input.start) {
+      params.start = input.start;
+    }
+    if (input.end) {
+      params.end = input.end;
+    }
+    if (isAdmin) {
+      if (input.owner && input.owner !== 'all') {
+        params.owner = input.owner;
+      }
+    }
+    params.includeRestored = input.includeRestored ? 'true' : 'false';
+    return params;
+  }, [isAdmin]);
+
+  const fetchHistorico = useCallback((customFilters) => {
+    if (!user?.token) {
+      setHistorico([]);
+      return;
+    }
+    const effective = customFilters || filtersRef.current;
+    setLoading(true);
+    setError('');
+    axios.get('/tasks/archive', { params: buildParams(effective) })
+      .then(res => {
+        const payload = Array.isArray(res.data) ? res.data.map(normalizeArchiveEntry) : [];
+        setHistorico(payload);
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+        } else {
+          setError(err.response?.data?.error || 'Erro ao carregar histórico');
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [user?.token, buildParams, handleLogout]);
+
+  useEffect(() => {
+    if (!user?.token) {
+      setHistorico([]);
+      setLoading(false);
+      setError('');
+      return;
+    }
+    fetchHistorico(filters);
+  }, [user?.token, filters, fetchHistorico]);
+
+  const refreshHistorico = useCallback(() => {
+    fetchHistorico(filtersRef.current);
+  }, [fetchHistorico]);
+
+  return {
+    historico,
+    historicoLoading: loading,
+    historicoError: error,
+    historicoFilters: filters,
+    setHistoricoFilters: setFilters,
+    refreshHistorico,
+    fetchHistorico
+  };
 }
 
-// Lembrete geral salvo no localStorage
-function Lembrete() {
-  const [lembrete, setLembrete] = useState(() => localStorage.getItem("lembrete") || "");
+function RemindersPanel({ user, handleLogout }) {
+  const [reminders, setReminders] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [newText, setNewText] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const fetchReminders = useCallback(() => {
+    if (!user?.token) {
+      setReminders([]);
+      setError('');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError('');
+    axios.get('/reminders', { headers: { Authorization: `Bearer ${user.token}` } })
+      .then(res => {
+        const payload = Array.isArray(res.data) ? res.data : [];
+        setReminders(payload);
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+        } else {
+          setError(err.response?.data?.error || 'Erro ao carregar lembretes');
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [user?.token, handleLogout]);
+
   useEffect(() => {
-    localStorage.setItem("lembrete", lembrete);
-  }, [lembrete]);
+    if (!user?.token) return;
+    fetchReminders();
+  }, [fetchReminders, user?.token]);
+
+  const addReminder = () => {
+    const text = newText.trim();
+    if (!text) {
+      toast.warn('Digite algo para salvar o lembrete');
+      return;
+    }
+    setSaving(true);
+    if (!user?.token) {
+      toast.warn('Faça login novamente para salvar o lembrete');
+      return;
+    }
+    axios.post('/reminders', { text }, { headers: { Authorization: `Bearer ${user.token}` } })
+      .then(res => {
+        const reminder = res.data;
+        setReminders(prev => [reminder, ...prev]);
+        setNewText('');
+        toast.success('Lembrete salvo!');
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+        } else {
+          toast.error(err.response?.data?.error || 'Erro ao salvar lembrete');
+        }
+      })
+      .finally(() => setSaving(false));
+  };
+
+  const toggleReminder = (reminder) => {
+    if (!user?.token) {
+      toast.warn('Sessão expirada, faça login novamente');
+      return;
+    }
+    axios.put(`/reminders/${reminder.id}`, { done: !reminder.done }, { headers: { Authorization: `Bearer ${user.token}` } })
+      .then(res => {
+        const updated = res.data;
+        setReminders(prev => prev.map(item => item.id === updated.id ? updated : item));
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+        } else {
+          toast.error(err.response?.data?.error || 'Erro ao atualizar lembrete');
+        }
+      });
+  };
+
+  const editReminder = (reminder) => {
+    const input = window.prompt('Editar lembrete', reminder.text);
+    if (input === null) return;
+    const text = input.trim();
+    if (!text) {
+      toast.warn('O texto do lembrete não pode ficar vazio');
+      return;
+    }
+    if (!user?.token) {
+      toast.warn('Sessão expirada, faça login novamente');
+      return;
+    }
+    axios.put(`/reminders/${reminder.id}`, { text }, { headers: { Authorization: `Bearer ${user.token}` } })
+      .then(res => {
+        const updated = res.data;
+        setReminders(prev => prev.map(item => item.id === updated.id ? updated : item));
+        toast.success('Lembrete atualizado');
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+        } else {
+          toast.error(err.response?.data?.error || 'Erro ao atualizar lembrete');
+        }
+      });
+  };
+
+  const removeReminder = (reminderId) => {
+    if (!user?.token) {
+      toast.warn('Sessão expirada, faça login novamente');
+      return;
+    }
+    axios.delete(`/reminders/${reminderId}`, { headers: { Authorization: `Bearer ${user.token}` } })
+      .then(() => {
+        setReminders(prev => prev.filter(item => item.id !== reminderId));
+        toast.success('Lembrete removido');
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+        } else {
+          toast.error(err.response?.data?.error || 'Erro ao remover lembrete');
+        }
+      });
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      addReminder();
+    }
+  };
+
   return (
     <div className="lembrete-box">
-      <label className="lembrete-label">Lembrete rápido:</label>
-      <textarea
-        className="lembrete-textarea"
-        value={lembrete}
-        onChange={e => setLembrete(e.target.value)}
-        placeholder="Digite aqui seu lembrete pessoal..."
-        rows={2}
-      />
+      <div className="lembrete-header">
+        <label className="lembrete-label">Lembretes rápidos</label>
+        <button
+          className="lembrete-refresh"
+          onClick={fetchReminders}
+          title="Recarregar lembretes"
+          disabled={loading}
+        >
+          ↻
+        </button>
+      </div>
+      <div className="lembrete-input-row">
+        <textarea
+          className="lembrete-textarea"
+          value={newText}
+          onChange={e => setNewText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Adicionar novo lembrete..."
+          rows={2}
+          disabled={saving}
+        />
+        <button className="kanban-btn" onClick={addReminder} disabled={saving}>
+          {saving ? 'Salvando...' : 'Salvar'}
+        </button>
+      </div>
+      {error && <div className="lembrete-error">{error}</div>}
+      {loading ? (
+        <div className="lembrete-empty">Carregando lembretes...</div>
+      ) : reminders.length === 0 ? (
+        <div className="lembrete-empty">Nenhum lembrete por aqui ainda.</div>
+      ) : (
+        <ul className="lembrete-list">
+          {reminders.map(reminder => (
+            <li key={reminder.id} className={`lembrete-item ${reminder.done ? 'done' : ''}`}>
+              <label className="lembrete-checkbox">
+                <input
+                  type="checkbox"
+                  checked={reminder.done}
+                  onChange={() => toggleReminder(reminder)}
+                />
+                <span />
+              </label>
+              <div className="lembrete-content">
+                <button className="lembrete-text" onClick={() => editReminder(reminder)}>
+                  {reminder.text}
+                </button>
+                <span className="lembrete-timestamp">
+                  {reminder.updated_at ? formatRelativeTime(reminder.updated_at) : formatRelativeTime(reminder.created_at)}
+                </span>
+              </div>
+              <button className="lembrete-remove" onClick={() => removeReminder(reminder.id)} title="Remover lembrete">✖</button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -269,6 +517,7 @@ const priorityLabels = {
   alta: 'Alta'
 };
 const priorityOptions = ['baixa', 'media', 'alta'];
+const HISTORICO_DEFAULT_FILTERS = { search: '', owner: 'all', start: '', end: '', includeRestored: false };
 
 const RELATIVE_TIME_MAP = [
   { limit: 60, divisor: 1, unit: 'segundos' },
@@ -352,13 +601,55 @@ function normalizeTask(raw = {}) {
   const checklist = sanitizeChecklistClient(checklistSource);
   const ownerId = raw.owner_id !== undefined && raw.owner_id !== null ? Number(raw.owner_id) : null;
   const ownerName = raw.owner_username || raw.ownerName || null;
+  let regressionReason = raw.regression_reason ?? null;
+  if (typeof regressionReason === 'string') {
+    regressionReason = regressionReason.trim();
+    if (!regressionReason) {
+      regressionReason = null;
+    }
+  }
+  const regressionReasonAt = raw.regression_reason_at || null;
   return {
     ...raw,
     tags,
     checklist,
     updated_at: raw.updated_at || raw.updatedAt || null,
     owner_id: ownerId,
-    owner_username: ownerName
+    owner_username: ownerName,
+    regression_reason: regressionReason,
+    regression_reason_at: regressionReasonAt
+  };
+}
+
+function normalizeArchiveEntry(raw = {}) {
+  let tagsSource = raw.tags;
+  if (!Array.isArray(tagsSource) && typeof tagsSource === 'string') {
+    try {
+      const parsed = JSON.parse(tagsSource);
+      tagsSource = Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      tagsSource = [];
+    }
+  }
+  const tags = sanitizeTagsClient(tagsSource);
+  let checklistSource = raw.checklist;
+  if (!Array.isArray(checklistSource) && typeof checklistSource === 'string') {
+    try {
+      const parsedChecklist = JSON.parse(checklistSource);
+      checklistSource = Array.isArray(parsedChecklist) ? parsedChecklist : [];
+    } catch (e) {
+      checklistSource = [];
+    }
+  }
+  const checklist = sanitizeChecklistClient(checklistSource);
+  return {
+    ...raw,
+    owner_id: raw.owner_id !== undefined && raw.owner_id !== null ? Number(raw.owner_id) : null,
+    restored_task_id: raw.restored_task_id !== undefined && raw.restored_task_id !== null ? Number(raw.restored_task_id) : null,
+    tags,
+    checklist,
+    deleted_at: raw.deleted_at || null,
+    restored_at: raw.restored_at || null
   };
 }
 
@@ -520,13 +811,13 @@ function App() {
     localStorage.setItem("kanbanUser", JSON.stringify(normalized));
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem("kanbanUser");
-    setOwnerFilter('all');
-    setAdminUsers([]);
-    setTasks([]);
-  };
+const handleLogout = useCallback(() => {
+  setUser(null);
+  localStorage.removeItem("kanbanUser");
+  setOwnerFilter('all');
+  setAdminUsers([]);
+  setTasks([]);
+}, []);
 
   // Intercepta requisições para enviar token
   useEffect(() => {
@@ -568,7 +859,18 @@ function App() {
     }
   };
   const [title, setTitle] = useState("");
-  const [historico, setHistorico] = useHistorico();
+  const {
+    historico,
+    historicoLoading,
+    historicoError,
+    historicoFilters,
+    setHistoricoFilters,
+    refreshHistorico
+  } = useHistoricoRecords({ user, isAdmin, handleLogout });
+  const [historicoFilterForm, setHistoricoFilterForm] = useState(() => ({ ...historicoFilters }));
+  useEffect(() => {
+    setHistoricoFilterForm({ ...historicoFilters });
+  }, [historicoFilters]);
   const [search, setSearch] = useState("");
   const searchDetails = useMemo(() => parseSearchQuery(search), [search]);
   const [editingId, setEditingId] = useState(null);
@@ -1107,24 +1409,70 @@ function App() {
 
   const handleBulkMove = () => {
     if (!bulkTargetStatus || selectedIds.length === 0) return;
+    const targetIndex = statusOrder.indexOf(bulkTargetStatus);
+    if (targetIndex === -1) {
+      toast.error('Status destino inválido.');
+      return;
+    }
+
+    const selectedTasks = selectedIds
+      .map(id => tasks.find(t => t.id === id))
+      .filter(Boolean);
+
+    const regressionTasks = selectedTasks.filter(task => {
+      const currentIndex = statusOrder.indexOf(task.status);
+      return currentIndex !== -1 && targetIndex < currentIndex;
+    });
+
+    let regressionReason = null;
+    if (regressionTasks.length > 0) {
+      const firstTask = regressionTasks[0];
+      const message = regressionTasks.length === 1
+        ? `Informe o motivo para retornar o card ${firstTask.code} (${statusLabels[firstTask.status]}) para ${statusLabels[bulkTargetStatus]}:`
+        : `Informe o motivo para retornar ${regressionTasks.length} cards para ${statusLabels[bulkTargetStatus]}:`;
+      const input = window.prompt(message);
+      if (input === null) {
+        return;
+      }
+      regressionReason = input.trim();
+      if (!regressionReason) {
+        toast.warn('O motivo é obrigatório para mover cards para um status anterior.');
+        return;
+      }
+    }
+
     setBulkLoading(true);
     const nowIso = new Date().toISOString();
-    const affectedChildren = selectedIds
-      .map(id => {
-        const task = tasks.find(t => t.id === id);
-        if (!task || !task.parent_id) return null;
-        const parent = tasks.find(t => t.id === task.parent_id);
-        return { task, parent };
-      })
-      .filter(Boolean);
-    Promise.all(selectedIds.map(id => axios.put(`/tasks/${id}`, { status: bulkTargetStatus })))
+    const regressionIds = new Set(regressionTasks.map(task => task.id));
+    const affectedChildren = selectedTasks
+      .filter(task => task.parent_id)
+      .map(task => ({
+        task,
+        parent: tasks.find(t => t.id === task.parent_id)
+      }));
+
+    Promise.all(selectedIds.map(id => {
+      const payload = { status: bulkTargetStatus };
+      if (regressionReason && regressionIds.has(id)) {
+        payload.regression_reason = regressionReason;
+      }
+      return axios.put(`/tasks/${id}`, payload);
+    }))
       .then(() => {
-        setTasks(prev => prev.map(t => (
-          selectedIds.includes(t.id) ? { ...t, status: bulkTargetStatus, updated_at: nowIso } : t
-        )));
-        setDetailTask(prev => (prev && selectedIds.includes(prev.id)
-          ? { ...prev, status: bulkTargetStatus, updated_at: nowIso }
-          : prev));
+        setTasks(prev => prev.map(t => {
+          if (!selectedIds.includes(t.id)) return t;
+          const extra = regressionReason && regressionIds.has(t.id)
+            ? { regression_reason: regressionReason, regression_reason_at: nowIso }
+            : {};
+          return { ...t, status: bulkTargetStatus, updated_at: nowIso, ...extra };
+        }));
+        setDetailTask(prev => {
+          if (!prev || !selectedIds.includes(prev.id)) return prev;
+          const extra = regressionReason && regressionIds.has(prev.id)
+            ? { regression_reason: regressionReason, regression_reason_at: nowIso }
+            : {};
+          return { ...prev, status: bulkTargetStatus, updated_at: nowIso, ...extra };
+        });
         affectedChildren.forEach(({ task, parent }) => {
           const parentLabel = parent?.code || `Card ${task.parent_id}`;
           if (bulkTargetStatus === 'blocked') {
@@ -1142,10 +1490,46 @@ function App() {
         if (err.response?.status === 401) {
           handleLogout();
         } else {
-          toast.error('Erro ao mover cards selecionados');
+          toast.error(err.response?.data?.error || 'Erro ao mover cards selecionados');
         }
       })
       .finally(() => setBulkLoading(false));
+  };
+
+  const handleHistoricoFormChange = (field, value) => {
+    setHistoricoFilterForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const applyHistoricoFilters = () => {
+    const payload = { ...historicoFilterForm };
+    if (!isAdmin) {
+      payload.owner = 'all';
+    }
+    setHistoricoFilters({ ...payload });
+  };
+
+  const clearHistoricoFilters = () => {
+    const defaults = { ...HISTORICO_DEFAULT_FILTERS };
+    if (!isAdmin) {
+      defaults.owner = 'all';
+    }
+    setHistoricoFilterForm(defaults);
+    setHistoricoFilters(defaults);
+  };
+
+  const restoreArchiveEntry = (archiveId) => {
+    if (!archiveId) return;
+    axios.post(`/tasks/archive/${archiveId}/restore`).then(() => {
+      toast.success('Card restaurado a partir do histórico');
+      fetchTasks();
+      refreshHistorico();
+    }).catch(err => {
+      if (err.response?.status === 401) {
+        handleLogout();
+      } else {
+        toast.error(err.response?.data?.error || 'Erro ao restaurar card');
+      }
+    });
   };
 
   const availableTags = useMemo(() => {
@@ -1443,12 +1827,45 @@ function App() {
 
   const moveTask = (id, status) => {
     const originalTask = tasks.find(t => t.id === id);
-    const originalParent = originalTask?.parent_id ? tasks.find(t => t.id === originalTask.parent_id) : null;
-    axios.put(`/tasks/${id}`, { status }).then(() => {
+    if (!originalTask || originalTask.status === status) return;
+    const targetIndex = statusOrder.indexOf(status);
+    const currentIndex = statusOrder.indexOf(originalTask.status);
+    if (targetIndex === -1) {
+      toast.error('Status destino inválido.');
+      return;
+    }
+    const isRegression = currentIndex !== -1 && targetIndex < currentIndex;
+    let regressionReason = null;
+    if (isRegression) {
+      const promptMessage = `Informe o motivo para retornar o card ${originalTask.code} (${statusLabels[originalTask.status]}) para ${statusLabels[status]}:`;
+      const input = window.prompt(promptMessage);
+      if (input === null) {
+        return;
+      }
+      regressionReason = input.trim();
+      if (!regressionReason) {
+        toast.warn('O motivo é obrigatório para mover o card para um status anterior.');
+        return;
+      }
+    }
+    const payload = { status };
+    if (regressionReason) {
+      payload.regression_reason = regressionReason;
+    }
+    const originalParent = originalTask.parent_id ? tasks.find(t => t.id === originalTask.parent_id) : null;
+    axios.put(`/tasks/${id}`, payload).then(() => {
       const nowIso = new Date().toISOString();
-      setTasks(prev => prev.map(t => (t.id === id ? { ...t, status, updated_at: nowIso } : t)));
-      setDetailTask(prev => (prev && prev.id === id ? { ...prev, status, updated_at: nowIso } : prev));
-      if (originalTask?.parent_id && status !== originalTask.status) {
+      setTasks(prev => prev.map(t => {
+        if (t.id !== id) return t;
+        const extra = regressionReason ? { regression_reason: regressionReason, regression_reason_at: nowIso } : {};
+        return { ...t, status, updated_at: nowIso, ...extra };
+      }));
+      setDetailTask(prev => {
+        if (!prev || prev.id !== id) return prev;
+        const extra = regressionReason ? { regression_reason: regressionReason, regression_reason_at: nowIso } : {};
+        return { ...prev, status, updated_at: nowIso, ...extra };
+      });
+      if (originalTask.parent_id && status !== originalTask.status) {
         const parentLabel = originalParent?.code || `Card ${originalTask.parent_id}`;
         if (status === 'blocked') {
           toast.warn(`Subtarefa ${originalTask.code} marcada como impedida (${parentLabel})`);
@@ -1458,7 +1875,11 @@ function App() {
         }
       }
     }).catch(err => {
-      if (err.response?.status === 401) handleLogout();
+      if (err.response?.status === 401) {
+        handleLogout();
+      } else if (err.response?.data?.error) {
+        toast.error(err.response.data.error);
+      }
     });
   };
 
@@ -1467,13 +1888,10 @@ function App() {
     const taskToDelete = tasks.find(t => t.id === id);
     const childTasks = tasks.filter(t => t.parent_id === id);
     const completedToArchive = [taskToDelete, ...childTasks].filter(Boolean).filter(t => t.status === "done");
-    if (completedToArchive.length > 0) {
-      const stamped = completedToArchive.map(t => ({ ...t, deletedAt: new Date().toISOString() }));
-      setHistorico(prev => [...stamped, ...prev]);
-    }
     axios.delete(`/tasks/${id}`).then(() => {
       setTasks(prev => prev.filter(t => t.id !== id && t.parent_id !== id));
       toast.success("Tarefa removida com sucesso!");
+      refreshHistorico();
     }).catch(err => {
       if (err.response?.status === 401) handleLogout();
     });
@@ -1734,30 +2152,119 @@ function App() {
         </DragDropContext>
       )}
       <div className="historico-lembrete-wrapper">
-        <Lembrete />
-        {historico.length > 0 && (
-          <div className="historico-box">
-            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6}}>
-              <h2 className="historico-title" style={{margin: 0}}>Histórico de Atividades Concluídas Removidas</h2>
-              <button
-                className="kanban-btn"
-                style={{padding: '4px 10px', fontSize: 13, fontWeight: 600}}
-                onClick={() => exportHistoricoCSV(historico)}
-                title="Exportar CSV"
-              >
-                ⬇️ Exportar
-              </button>
-            </div>
-            <ul className="historico-list">
-              {historico.map((t, i) => (
-                <li key={t.id + '-' + (t.deletedAt || i)} className="historico-item">
-                  <span className="historico-task-title">✅ {t.title}</span>
-                  <span className="historico-task-date">{t.deletedAt ? new Date(t.deletedAt).toLocaleString() : ""}</span>
-                </li>
-              ))}
-            </ul>
+        <RemindersPanel user={user} handleLogout={handleLogout} />
+        <div className="historico-box">
+          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 12, flexWrap: 'wrap'}}>
+            <h2 className="historico-title" style={{margin: 0}}>Histórico de Atividades Concluídas Removidas</h2>
+            <button
+              className="kanban-btn"
+              style={{padding: '4px 10px', fontSize: 13, fontWeight: 600}}
+              onClick={() => exportHistoricoCSV(historico)}
+              title="Exportar CSV"
+              disabled={!historico.length}
+            >
+              ⬇️ Exportar
+            </button>
           </div>
-        )}
+          <div className="historico-filters" style={{display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: 12}}>
+            <input
+              className="kanban-input"
+              value={historicoFilterForm.search}
+              onChange={e => handleHistoricoFormChange('search', e.target.value)}
+              placeholder="Buscar por título, código ou responsável"
+            />
+            <input
+              className="kanban-input"
+              type="date"
+              value={historicoFilterForm.start}
+              onChange={e => handleHistoricoFormChange('start', e.target.value)}
+              title="Data inicial"
+            />
+            <input
+              className="kanban-input"
+              type="date"
+              value={historicoFilterForm.end}
+              onChange={e => handleHistoricoFormChange('end', e.target.value)}
+              title="Data final"
+            />
+            {isAdmin && (
+              <select
+                className="kanban-input"
+                value={historicoFilterForm.owner}
+                onChange={e => handleHistoricoFormChange('owner', e.target.value)}
+              >
+                <option value="all">Todos os donos</option>
+                <option value="none">Sem responsável</option>
+                {adminUsers.map(u => (
+                  <option key={`archive-owner-${u.id}`} value={String(u.id)}>
+                    {u.username}{currentUserId && Number(u.id) === currentUserId ? ' (você)' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            <label style={{display: 'flex', alignItems: 'center', gap: 6, fontSize: 13}}>
+              <input
+                type="checkbox"
+                checked={historicoFilterForm.includeRestored}
+                onChange={e => handleHistoricoFormChange('includeRestored', e.target.checked)}
+              />
+              Incluir restaurados
+            </label>
+          </div>
+          <div style={{display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap'}}>
+            <button className="kanban-btn" onClick={applyHistoricoFilters}>Aplicar filtros</button>
+            <button className="kanban-btn secondary" onClick={clearHistoricoFilters}>Limpar</button>
+            <button className="kanban-btn secondary" onClick={refreshHistorico} disabled={historicoLoading}>Atualizar</button>
+          </div>
+          {historicoError && (
+            <div style={{ color: '#e53935', marginBottom: 8 }}>{historicoError}</div>
+          )}
+          {historicoLoading ? (
+            <div style={{ padding: 12 }}>Carregando histórico...</div>
+          ) : historico.length === 0 ? (
+            <div className="historico-empty">Nenhum card arquivado por enquanto.</div>
+          ) : (
+            <ul className="historico-list">
+              {historico.map(item => {
+                const deletedLabel = item.deleted_at ? new Date(item.deleted_at).toLocaleString() : '—';
+                const restoredLabel = item.restored_at ? new Date(item.restored_at).toLocaleString() : null;
+                const statusLabel = statusLabels[item.original_status] || item.original_status || '—';
+                const priorityLabel = priorityLabels[item.priority] || item.priority || '—';
+                const ownerLabel = item.owner_username || (item.owner_id ? `Usuário ${item.owner_id}` : 'Sem responsável');
+                return (
+                  <li key={item.id} className="historico-item">
+                    <div className="historico-item-header">
+                      <span className="historico-task-title">✅ {item.code ? `${item.code} · ` : ''}{item.title}</span>
+                      <span className="historico-task-date">
+                        Removido em {deletedLabel}
+                        {item.deleted_by ? ` · por ${item.deleted_by}` : ''}
+                      </span>
+                    </div>
+                    <div className="historico-item-meta">
+                      <span>Status original: {statusLabel}</span>
+                      <span>Prioridade: {priorityLabel}</span>
+                      <span>Dono: {ownerLabel}</span>
+                      {item.assignee && <span>Responsável: {item.assignee}</span>}
+                      {item.tags.length > 0 && (
+                        <span>Tags: {item.tags.map(tag => `#${tag}`).join(' ')}</span>
+                      )}
+                    </div>
+                    {item.restored_at ? (
+                      <div className="historico-item-meta historico-item-restored">
+                        Restaurado em {restoredLabel}
+                        {item.restored_by ? ` · por ${item.restored_by}` : ''}
+                      </div>
+                    ) : isAdmin && (
+                      <div style={{marginTop: 8}}>
+                        <button className="kanban-btn" onClick={() => restoreArchiveEntry(item.id)}>Restaurar card</button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </div>
       {/* Modal de confirmação de remoção */}
       {confirmDelete && (
@@ -1802,6 +2309,18 @@ function App() {
           <div className="detail-modal-body">
             <div className="detail-row"><span>Nome:</span><strong>{detailTask.title}</strong></div>
             <div className="detail-row"><span>Status:</span><strong>{statusLabels[detailTask.status]}</strong></div>
+            {detailTask.regression_reason && (
+              <div className="detail-row">
+                <span>Motivo do retorno:</span>
+                <strong>{detailTask.regression_reason}</strong>
+              </div>
+            )}
+            {detailTask.regression_reason_at && (
+              <div className="detail-row">
+                <span>Registrado em:</span>
+                <strong>{new Date(detailTask.regression_reason_at).toLocaleString()}</strong>
+              </div>
+            )}
             <div className="detail-row">
               <span>Prioridade:</span>
               {detailEdit ? (

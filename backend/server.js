@@ -11,6 +11,7 @@ function generateToken() {
 }
 
 const VALID_STATUSES = ['backlog', 'analysis', 'doing', 'blocked', 'review', 'done'];
+const STATUS_ORDER = ['backlog', 'analysis', 'doing', 'blocked', 'review', 'done'];
 const VALID_PRIORITIES = ['baixa', 'media', 'alta'];
 
 const app = express();
@@ -49,6 +50,12 @@ function ensureTaskColumns() {
     if (!colNames.includes("owner_id")) {
       db.run("ALTER TABLE tasks ADD COLUMN owner_id INTEGER REFERENCES users(id)");
     }
+    if (!colNames.includes("regression_reason")) {
+      db.run("ALTER TABLE tasks ADD COLUMN regression_reason TEXT");
+    }
+    if (!colNames.includes("regression_reason_at")) {
+      db.run("ALTER TABLE tasks ADD COLUMN regression_reason_at TEXT");
+    }
   });
 }
 
@@ -69,7 +76,9 @@ db.serialize(() => {
       updated_at TEXT DEFAULT (datetime('now')),
       tags TEXT DEFAULT '[]',
       checklist TEXT DEFAULT '[]',
-      owner_id INTEGER REFERENCES users(id)
+      owner_id INTEGER REFERENCES users(id),
+      regression_reason TEXT,
+      regression_reason_at TEXT
     )
   `);
   db.run(`
@@ -89,6 +98,38 @@ db.serialize(() => {
       method TEXT,
       path TEXT,
       date TEXT
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS task_archive (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id INTEGER,
+      code TEXT,
+      title TEXT NOT NULL,
+      original_status TEXT,
+      priority TEXT,
+      assignee TEXT,
+      owner_id INTEGER,
+      owner_username TEXT,
+      tags TEXT,
+      description TEXT,
+      parent_id INTEGER,
+      checklist TEXT,
+      deleted_at TEXT DEFAULT (datetime('now')),
+      deleted_by TEXT,
+      restored_at TEXT,
+      restored_by TEXT,
+      restored_task_id INTEGER
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      done INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
     )
   `);
   ensureTaskColumns();
@@ -324,6 +365,98 @@ function ensureOwnerExists(ownerId, dbInstance, callback) {
   });
 }
 
+function archiveCompletedCards(rows, deletedBy, callback) {
+  const doneCards = Array.isArray(rows) ? rows.filter(row => row && row.status === 'done') : [];
+  if (doneCards.length === 0) {
+    return callback(null);
+  }
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO task_archive (
+      task_id,
+      code,
+      title,
+      original_status,
+      priority,
+      assignee,
+      owner_id,
+      owner_username,
+      tags,
+      description,
+      parent_id,
+      checklist,
+      deleted_at,
+      deleted_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  let firstError = null;
+  doneCards.forEach(card => {
+    if (firstError) return;
+    let tagsJson = '[]';
+    if (card.tags) {
+      if (typeof card.tags === 'string') {
+        tagsJson = card.tags;
+      } else if (Array.isArray(card.tags)) {
+        tagsJson = JSON.stringify(sanitizeTags(card.tags));
+      }
+    }
+    let checklistJson = '[]';
+    if (card.checklist) {
+      if (typeof card.checklist === 'string') {
+        checklistJson = card.checklist;
+      } else if (Array.isArray(card.checklist)) {
+        checklistJson = JSON.stringify(card.checklist);
+      }
+    }
+    stmt.run(
+      [
+        card.id || null,
+        card.code || null,
+        card.title || '',
+        card.status || null,
+        card.priority || null,
+        card.assignee || null,
+        card.owner_id || null,
+        card.owner_username || null,
+        tagsJson,
+        card.description || null,
+        card.parent_id || null,
+        checklistJson,
+        now,
+        deletedBy || null
+      ],
+      err => {
+        if (err && !firstError) {
+          firstError = err;
+        }
+      }
+    );
+  });
+  stmt.finalize(err => {
+    if (!firstError && err) {
+      firstError = err;
+    }
+    callback(firstError);
+  });
+}
+
+function sanitizeReminderText(input) {
+  if (input === null || input === undefined) return '';
+  return String(input).trim().slice(0, 280);
+}
+
+function normalizeReminderRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    text: row.text,
+    done: Boolean(row.done),
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+
 app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
   let { title, priority = 'media', description = '', assignee = '', parent_id = null, status, tags = [], checklist = [], owner_id } = req.body;
   if (!title || title.trim() === "") {
@@ -369,7 +502,9 @@ app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
             updated_at: new Date().toISOString(),
             tags: sanitizedTags,
             checklist: sanitizedChecklist,
-            owner_id: finalOwnerId
+            owner_id: finalOwnerId,
+            regression_reason: null,
+            regression_reason_at: null
           };
           res.json(payload);
         }
@@ -454,13 +589,33 @@ app.put("/tasks/:id", authMiddleware, audit('update_task'), (req, res) => {
       if (!VALID_STATUSES.includes(status)) {
         return res.status(400).json({ error: 'Status inválido' });
       }
-      fields.push('status = ?');
-      values.push(status);
-      if (status === 'done') {
-        fields.push("completed_at = datetime('now')");
+      const currentIndex = STATUS_ORDER.indexOf(currentTask.status);
+      const nextIndex = STATUS_ORDER.indexOf(status);
+      const statusChanged = status !== currentTask.status;
+      const isRegression = statusChanged && currentIndex !== -1 && nextIndex !== -1 && nextIndex < currentIndex;
+      let regressionReason = null;
+
+      if (isRegression) {
+        regressionReason = typeof req.body.regression_reason === 'string' ? req.body.regression_reason.trim() : '';
+        if (!regressionReason) {
+          return res.status(400).json({ error: 'Motivo obrigatório ao mover o card para um status anterior.' });
+        }
       }
-      if (status === 'backlog' || status === 'doing') {
-        fields.push('completed_at = NULL');
+
+      if (statusChanged) {
+        fields.push('status = ?');
+        values.push(status);
+        if (status === 'done') {
+          fields.push("completed_at = datetime('now')");
+        }
+        if (status === 'backlog' || status === 'doing') {
+          fields.push('completed_at = NULL');
+        }
+        if (isRegression) {
+          fields.push('regression_reason = ?');
+          values.push(regressionReason);
+          fields.push("regression_reason_at = datetime('now')");
+        }
       }
     }
 
@@ -599,7 +754,355 @@ app.delete("/tasks/:id", authMiddleware, audit('delete_task'), (req, res) => {
     if (!requesterIsAdmin && task.owner_id && task.owner_id !== req.user.id) {
       return res.status(403).json({ error: 'Sem permissão para remover este card' });
     }
-    db.run("DELETE FROM tasks WHERE id = ? OR parent_id = ?", [taskId, taskId], function (deleteErr) {
+    db.all(
+      'SELECT tasks.*, users.username AS owner_username FROM tasks LEFT JOIN users ON tasks.owner_id = users.id WHERE tasks.id = ? OR tasks.parent_id = ?',
+      [taskId, taskId],
+      (fetchErr, rows) => {
+        if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+        archiveCompletedCards(rows, req.user?.username || null, (archiveErr) => {
+          if (archiveErr) {
+            console.error('Erro ao arquivar cards concluídos:', archiveErr);
+            return res.status(500).json({ error: 'Erro ao arquivar cards removidos' });
+          }
+          db.run("DELETE FROM tasks WHERE id = ? OR parent_id = ?", [taskId, taskId], function (deleteErr) {
+            if (deleteErr) return res.status(500).json({ error: deleteErr.message });
+            res.json({ deleted: this.changes });
+          });
+        });
+      }
+    );
+  });
+});
+
+app.get('/tasks/archive', authMiddleware, audit('list_archive'), (req, res) => {
+  const isAdmin = req.user.role === 'admin';
+  const { search, owner, start, end, includeRestored } = req.query;
+  const filters = [];
+  const params = [];
+
+  if (!isAdmin) {
+    filters.push('(owner_id = ? OR owner_id IS NULL OR deleted_by = ?)');
+    params.push(req.user.id);
+    params.push(req.user.username);
+  } else if (owner && owner !== 'all') {
+    if (owner === 'none') {
+      filters.push('owner_id IS NULL');
+    } else {
+      const ownerId = parseInt(owner, 10);
+      if (Number.isNaN(ownerId) || ownerId < 1) {
+        return res.status(400).json({ error: 'Parâmetro owner inválido' });
+      }
+      filters.push('owner_id = ?');
+      params.push(ownerId);
+    }
+  }
+
+  const normalizedSearch = typeof search === 'string' ? search.trim().toLowerCase() : '';
+  if (normalizedSearch) {
+    filters.push('(LOWER(title) LIKE ? OR LOWER(code) LIKE ? OR LOWER(assignee) LIKE ?)');
+    const like = `%${normalizedSearch}%`;
+    params.push(like, like, like);
+  }
+
+  const parseDateInput = (value, endOfDay = false) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    if (endOfDay) {
+      parsed.setHours(23, 59, 59, 999);
+    }
+    return parsed.toISOString();
+  };
+
+  const startIso = parseDateInput(start);
+  if (start && !startIso) {
+    return res.status(400).json({ error: 'Parâmetro start inválido' });
+  }
+  if (startIso) {
+    filters.push('deleted_at >= ?');
+    params.push(startIso);
+  }
+
+  const endIso = parseDateInput(end, true);
+  if (end && !endIso) {
+    return res.status(400).json({ error: 'Parâmetro end inválido' });
+  }
+  if (endIso) {
+    filters.push('deleted_at <= ?');
+    params.push(endIso);
+  }
+
+  const includeRestoredCards = includeRestored === 'true';
+  if (!includeRestoredCards) {
+    filters.push('restored_at IS NULL');
+  }
+
+  const query = `SELECT * FROM task_archive${filters.length ? ` WHERE ${filters.join(' AND ')}` : ''} ORDER BY datetime(deleted_at) DESC LIMIT 500`;
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const normalized = rows.map(row => {
+      let tags = [];
+      if (row.tags) {
+        if (Array.isArray(row.tags)) {
+          tags = sanitizeTags(row.tags);
+        } else if (typeof row.tags === 'string') {
+          try {
+            const parsed = JSON.parse(row.tags);
+            tags = sanitizeTags(parsed);
+          } catch (e) {
+            tags = [];
+          }
+        }
+      }
+      let checklist = [];
+      if (row.checklist) {
+        if (Array.isArray(row.checklist)) {
+          checklist = row.checklist;
+        } else if (typeof row.checklist === 'string') {
+          try {
+            const parsedChecklist = JSON.parse(row.checklist);
+            checklist = Array.isArray(parsedChecklist) ? parsedChecklist : [];
+          } catch (e) {
+            checklist = [];
+          }
+        }
+      }
+      return {
+        ...row,
+        owner_id: row.owner_id !== null && row.owner_id !== undefined ? Number(row.owner_id) : null,
+        restored_task_id: row.restored_task_id !== null && row.restored_task_id !== undefined ? Number(row.restored_task_id) : null,
+        tags,
+        checklist
+      };
+    });
+    res.json(normalized);
+  });
+});
+
+app.post('/tasks/archive/:id/restore', authMiddleware, audit('restore_archive'), (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Somente administradores podem restaurar cards' });
+  }
+  const archiveId = parseInt(req.params.id, 10);
+  if (Number.isNaN(archiveId) || archiveId < 1) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+  db.get('SELECT * FROM task_archive WHERE id = ?', [archiveId], (err, record) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!record) return res.status(404).json({ error: 'Registro não encontrado' });
+    if (record.restored_at) {
+      return res.status(409).json({ error: 'Este card já foi restaurado' });
+    }
+
+    let tagsArray = [];
+    if (record.tags) {
+      if (Array.isArray(record.tags)) {
+        tagsArray = sanitizeTags(record.tags);
+      } else if (typeof record.tags === 'string') {
+        try {
+          const parsed = JSON.parse(record.tags);
+          tagsArray = sanitizeTags(parsed);
+        } catch (e) {
+          tagsArray = [];
+        }
+      }
+    }
+    const tagsJson = JSON.stringify(tagsArray);
+
+    let checklistArray = [];
+    if (record.checklist) {
+      if (Array.isArray(record.checklist)) {
+        checklistArray = record.checklist;
+      } else if (typeof record.checklist === 'string') {
+        try {
+          const parsedChecklist = JSON.parse(record.checklist);
+          checklistArray = Array.isArray(parsedChecklist) ? parsedChecklist : [];
+        } catch (e) {
+          checklistArray = [];
+        }
+      }
+    }
+    const sanitizedChecklist = sanitizeChecklist(checklistArray);
+    const checklistJson = JSON.stringify(sanitizedChecklist);
+
+    const priority = VALID_PRIORITIES.includes(record.priority) ? record.priority : 'media';
+    const assignee = record.assignee || '';
+    const baseDescription = record.description ? String(record.description) : '';
+    const now = new Date().toISOString();
+    const restoreNote = `Restaurado do histórico em ${now} por ${req.user.username}${record.deleted_by ? ` (removido originalmente por ${record.deleted_by})` : ''}.`;
+    const description = baseDescription ? `${baseDescription}\n\n${restoreNote}` : restoreNote;
+
+    const insertTask = (ownerIdForRestore) => {
+      db.get('SELECT MAX(id) as lastId FROM tasks', [], (maxErr, last) => {
+        if (maxErr) return res.status(500).json({ error: maxErr.message });
+        const newId = (last?.lastId || 0) + 1;
+        const code = `TASK-${String(newId).padStart(3, '0')}`;
+        db.run(
+          "INSERT INTO tasks (title, status, priority, description, assignee, parent_id, code, tags, checklist, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            record.title,
+            'backlog',
+            priority,
+            description,
+            assignee,
+            null,
+            code,
+            tagsJson,
+            checklistJson,
+            ownerIdForRestore ?? null
+          ],
+          function (insertErr) {
+            if (insertErr) return res.status(500).json({ error: insertErr.message });
+            const restoredTaskId = this.lastID;
+            db.run(
+              'UPDATE task_archive SET restored_at = datetime(\'now\'), restored_by = ?, restored_task_id = ? WHERE id = ?',
+              [req.user.username, restoredTaskId, archiveId],
+              function (updateErr) {
+                if (updateErr) {
+                  console.error('Erro ao atualizar registro de histórico:', updateErr);
+                  return res.status(500).json({ error: 'Card restaurado, porém houve falha ao atualizar histórico.' });
+                }
+                res.json({
+                  restored: true,
+                  restored_task_id: restoredTaskId,
+                  code,
+                  status: 'backlog'
+                });
+              }
+            );
+          }
+        );
+      });
+    };
+
+    const ownerId = record.owner_id !== null && record.owner_id !== undefined ? Number(record.owner_id) : null;
+    if (ownerId) {
+      ensureOwnerExists(ownerId, db, (ownerErr, validatedOwnerId) => {
+        if (ownerErr) {
+          if (ownerErr.message === 'INVALID_OWNER') {
+            return res.status(400).json({ error: 'Responsável inválido para restauração' });
+          }
+          // Se o usuário original não existir mais, restauramos sem responsável.
+          insertTask(null);
+        } else {
+          insertTask(validatedOwnerId);
+        }
+      });
+    } else {
+      insertTask(null);
+    }
+  });
+});
+
+app.get('/reminders', authMiddleware, audit('list_reminders'), (req, res) => {
+  const isAdmin = req.user.role === 'admin';
+  let targetUserId = req.user.id;
+  if (isAdmin && req.query.user) {
+    const parsed = parseInt(String(req.query.user).trim(), 10);
+    if (Number.isNaN(parsed) || parsed < 1) {
+      return res.status(400).json({ error: 'Parâmetro user inválido' });
+    }
+    targetUserId = parsed;
+  }
+
+  db.all(
+    'SELECT * FROM reminders WHERE user_id = ? ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 100',
+    [targetUserId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const normalized = rows.map(normalizeReminderRow);
+      res.json(normalized);
+    }
+  );
+});
+
+app.post('/reminders', authMiddleware, audit('create_reminder'), (req, res) => {
+  const rawText = req.body?.text;
+  const text = sanitizeReminderText(rawText);
+  if (!text) {
+    return res.status(400).json({ error: 'O texto do lembrete é obrigatório.' });
+  }
+
+  const targetUserId = req.user.id;
+
+  db.run(
+    'INSERT INTO reminders (user_id, text, done) VALUES (?, ?, 0)',
+    [targetUserId, text],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      db.get('SELECT * FROM reminders WHERE id = ?', [this.lastID], (fetchErr, row) => {
+        if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+        res.status(201).json(normalizeReminderRow(row));
+      });
+    }
+  );
+});
+
+app.put('/reminders/:id', authMiddleware, audit('update_reminder'), (req, res) => {
+  const reminderId = parseInt(req.params.id, 10);
+  if (Number.isNaN(reminderId) || reminderId < 1) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+
+  db.get('SELECT * FROM reminders WHERE id = ?', [reminderId], (err, reminder) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!reminder) return res.status(404).json({ error: 'Lembrete não encontrado' });
+    if (reminder.user_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Sem permissão para alterar este lembrete' });
+    }
+
+    const fields = [];
+    const values = [];
+
+    if (req.body?.text !== undefined) {
+      const text = sanitizeReminderText(req.body.text);
+      if (!text) {
+        return res.status(400).json({ error: 'O texto do lembrete é obrigatório.' });
+      }
+      fields.push('text = ?');
+      values.push(text);
+    }
+
+    if (req.body?.done !== undefined) {
+      fields.push('done = ?');
+      values.push(req.body.done ? 1 : 0);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'Nenhum campo para atualizar.' });
+    }
+
+    fields.push("updated_at = datetime('now')");
+    values.push(reminderId);
+
+    db.run(
+      `UPDATE reminders SET ${fields.join(', ')} WHERE id = ?`,
+      values,
+      function (updateErr) {
+        if (updateErr) return res.status(500).json({ error: updateErr.message });
+        db.get('SELECT * FROM reminders WHERE id = ?', [reminderId], (fetchErr, row) => {
+          if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+          res.json(normalizeReminderRow(row));
+        });
+      }
+    );
+  });
+});
+
+app.delete('/reminders/:id', authMiddleware, audit('delete_reminder'), (req, res) => {
+  const reminderId = parseInt(req.params.id, 10);
+  if (Number.isNaN(reminderId) || reminderId < 1) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+
+  db.get('SELECT user_id FROM reminders WHERE id = ?', [reminderId], (err, reminder) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!reminder) return res.status(404).json({ error: 'Lembrete não encontrado' });
+    if (reminder.user_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Sem permissão para remover este lembrete' });
+    }
+
+    db.run('DELETE FROM reminders WHERE id = ?', [reminderId], function (deleteErr) {
       if (deleteErr) return res.status(500).json({ error: deleteErr.message });
       res.json({ deleted: this.changes });
     });

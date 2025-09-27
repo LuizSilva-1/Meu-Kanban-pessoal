@@ -282,6 +282,13 @@
   color: #eee;
   box-shadow: 0 2px 12px #0006;
 }
+.dark-mode .lembrete-refresh {
+  border-color: #ff9900;
+  color: #ff9900;
+}
+.dark-mode .lembrete-refresh:hover {
+  background: rgba(255, 153, 0, 0.12);
+}
 .dark-mode .historico-box {
   background: #181c24ee;
   color: #eee;
@@ -293,6 +300,18 @@
 .dark-mode .historico-task-title {
   color: #43a047;
 }
+.dark-mode .historico-task-date {
+  color: #b0bec5;
+}
+.dark-mode .historico-item-meta {
+  color: #cfd8dc;
+}
+.dark-mode .historico-item-restored {
+  color: #81c784;
+}
+.dark-mode .historico-empty {
+  color: #b0bec5;
+}
 .dark-mode .lembrete-label {
   color: #ff9900;
 }
@@ -300,6 +319,30 @@
   background: #232f3e;
   color: #eee;
   border: 1px solid #888;
+}
+.dark-mode .lembrete-empty {
+  color: #b0bec5;
+}
+.dark-mode .lembrete-item {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.dark-mode .lembrete-checkbox span {
+  border-color: #ff9900;
+}
+.dark-mode .lembrete-checkbox input:checked + span {
+  background: #ff9900;
+}
+.dark-mode .lembrete-item.done .lembrete-text {
+  color: #90a4ae;
+}
+.dark-mode .lembrete-timestamp {
+  color: #90a4ae;
+}
+.dark-mode .lembrete-remove {
+  color: #ff8a80;
+}
+.dark-mode .lembrete-remove:hover {
+  background: rgba(255, 138, 128, 0.18);
 }
 /* Responsividade para telas menores */
 @media (max-width: 900px) {
@@ -364,11 +407,11 @@
   background: #f6fff6ee;
   border-radius: 0 0 10px 10px;
   box-shadow: 0 2px 12px #0002;
-  padding: 16px 20px 10px 20px;
+  padding: 16px 20px 12px 20px;
   margin: 0;
   border-top: 1px solid #e0e0e0;
   pointer-events: auto;
-  max-height: 260px;
+  max-height: 380px;
   overflow-y: auto;
 }
 .historico-title {
@@ -383,12 +426,12 @@
   margin: 0;
 }
 .historico-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
+  padding: 10px 0;
   border-bottom: 1px solid #eee;
   font-size: 15px;
+}
+.historico-item:last-child {
+  border-bottom: none;
 }
 .historico-task-title {
     color: #388e3c;
@@ -400,7 +443,28 @@
 .historico-task-date {
   color: #888;
   font-size: 13px;
-  margin-left: 12px;
+}
+.historico-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.historico-item-meta {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+  color: #555;
+}
+.historico-item-restored {
+  color: #2e7d32;
+}
+.historico-empty {
+  padding: 12px 0;
+  color: #666;
+  font-size: 14px;
 }
 /* Lembrete geral */
 .lembrete-box {
@@ -415,10 +479,42 @@
   margin-bottom: 0;
   pointer-events: auto;
 }
+.lembrete-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
 .lembrete-label {
   font-weight: 700;
   color: #232f3e;
   margin-bottom: 6px;
+}
+.lembrete-refresh {
+  background: none;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.lembrete-refresh:hover {
+  background: #f0f0f0;
+}
+.lembrete-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.lembrete-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.lembrete-input-row .kanban-btn {
+  align-self: flex-end;
 }
 .lembrete-textarea {
   border-radius: 6px;
@@ -432,6 +528,102 @@
   outline: none;
   width: 100%;
   transition: border 0.2s;
+}
+.lembrete-error {
+  color: #e53935;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.lembrete-empty {
+  color: #666;
+  font-size: 14px;
+  padding: 8px 0;
+}
+.lembrete-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.lembrete-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+.lembrete-item:last-child {
+  border-bottom: none;
+}
+.lembrete-item.done .lembrete-text {
+  text-decoration: line-through;
+  color: #777;
+}
+.lembrete-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lembrete-checkbox input {
+  display: none;
+}
+.lembrete-checkbox span {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 2px solid #1976d2;
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+}
+.lembrete-checkbox input:checked + span {
+  background: #1976d2;
+}
+.lembrete-checkbox input:checked + span::after {
+  content: '✔';
+  position: absolute;
+  top: -3px;
+  left: 2px;
+  font-size: 16px;
+  color: #fff;
+}
+.lembrete-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lembrete-text {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0;
+  font-size: 15px;
+  color: inherit;
+  cursor: pointer;
+}
+.lembrete-text:hover {
+  text-decoration: underline;
+}
+.lembrete-timestamp {
+  font-size: 12px;
+  color: #888;
+}
+.lembrete-remove {
+  background: none;
+  border: none;
+  color: #e53935;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.lembrete-remove:hover {
+  background: rgba(229, 57, 53, 0.12);
 }
 .kanban-bg {
   min-height: 100vh;
