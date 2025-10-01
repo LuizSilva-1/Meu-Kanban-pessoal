@@ -56,6 +56,22 @@ function ensureTaskColumns() {
     if (!colNames.includes("regression_reason_at")) {
       db.run("ALTER TABLE tasks ADD COLUMN regression_reason_at TEXT");
     }
+    if (!colNames.includes("tracked_seconds")) {
+      db.run("ALTER TABLE tasks ADD COLUMN tracked_seconds INTEGER DEFAULT 0");
+    }
+    if (!colNames.includes("timer_started_at")) {
+      db.run("ALTER TABLE tasks ADD COLUMN timer_started_at TEXT");
+    }
+  });
+}
+
+function ensureArchiveColumns() {
+  db.all("PRAGMA table_info(task_archive)", [], (err, columns) => {
+    if (err) return console.error("Erro ao verificar colunas da tabela task_archive:", err);
+    const colNames = columns.map(c => c.name);
+    if (!colNames.includes("tracked_seconds")) {
+      db.run("ALTER TABLE task_archive ADD COLUMN tracked_seconds INTEGER DEFAULT 0");
+    }
   });
 }
 
@@ -78,7 +94,9 @@ db.serialize(() => {
       checklist TEXT DEFAULT '[]',
       owner_id INTEGER REFERENCES users(id),
       regression_reason TEXT,
-      regression_reason_at TEXT
+      regression_reason_at TEXT,
+      tracked_seconds INTEGER DEFAULT 0,
+      timer_started_at TEXT
     )
   `);
   db.run(`
@@ -119,7 +137,8 @@ db.serialize(() => {
       deleted_by TEXT,
       restored_at TEXT,
       restored_by TEXT,
-      restored_task_id INTEGER
+      restored_task_id INTEGER,
+      tracked_seconds INTEGER DEFAULT 0
     )
   `);
   db.run(`
@@ -133,6 +152,7 @@ db.serialize(() => {
     )
   `);
   ensureTaskColumns();
+  ensureArchiveColumns();
 });
 
 // Middleware para checar se usuário é admin
@@ -286,35 +306,7 @@ app.get("/tasks", authMiddleware, audit('list_tasks'), (req, res) => {
   const query = `SELECT tasks.*, users.username AS owner_username FROM tasks LEFT JOIN users ON tasks.owner_id = users.id${filters.length ? ` WHERE ${filters.join(' AND ')}` : ''}`;
   db.all(query, params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    const normalized = rows.map(row => {
-      let parsedTags = [];
-      if (row.tags) {
-        if (Array.isArray(row.tags)) {
-          parsedTags = sanitizeTags(row.tags);
-        } else if (typeof row.tags === 'string') {
-          try {
-            const fromJson = JSON.parse(row.tags);
-            parsedTags = sanitizeTags(fromJson);
-          } catch (e) {
-            parsedTags = [];
-          }
-        }
-      }
-      let parsedChecklist = [];
-      if (row.checklist) {
-        if (Array.isArray(row.checklist)) {
-          parsedChecklist = sanitizeChecklist(row.checklist);
-        } else if (typeof row.checklist === 'string') {
-          try {
-            const fromJsonChecklist = JSON.parse(row.checklist);
-            parsedChecklist = sanitizeChecklist(fromJsonChecklist);
-          } catch (e) {
-            parsedChecklist = [];
-          }
-        }
-      }
-      return { ...row, tags: parsedTags, checklist: parsedChecklist };
-    });
+    const normalized = rows.map(normalizeTaskRow);
     res.json(normalized);
   });
 });
@@ -350,6 +342,45 @@ function sanitizeChecklist(input) {
   return result;
 }
 
+function normalizeTaskRow(row = {}) {
+  if (!row) return null;
+  let parsedTags = [];
+  if (row.tags) {
+    if (Array.isArray(row.tags)) {
+      parsedTags = sanitizeTags(row.tags);
+    } else if (typeof row.tags === 'string') {
+      try {
+        const fromJson = JSON.parse(row.tags);
+        parsedTags = sanitizeTags(fromJson);
+      } catch (e) {
+        parsedTags = [];
+      }
+    }
+  }
+  let parsedChecklist = [];
+  if (row.checklist) {
+    if (Array.isArray(row.checklist)) {
+      parsedChecklist = sanitizeChecklist(row.checklist);
+    } else if (typeof row.checklist === 'string') {
+      try {
+        const fromJsonChecklist = JSON.parse(row.checklist);
+        parsedChecklist = sanitizeChecklist(fromJsonChecklist);
+      } catch (e) {
+        parsedChecklist = [];
+      }
+    }
+  }
+  const ownerId = row.owner_id !== null && row.owner_id !== undefined ? Number(row.owner_id) : null;
+  return {
+    ...row,
+    owner_id: ownerId,
+    tags: parsedTags,
+    checklist: parsedChecklist,
+    tracked_seconds: Number(row.tracked_seconds) || 0,
+    timer_started_at: row.timer_started_at || null
+  };
+}
+
 function ensureOwnerExists(ownerId, dbInstance, callback) {
   if (ownerId === null || ownerId === undefined) {
     return callback(null);
@@ -363,6 +394,34 @@ function ensureOwnerExists(ownerId, dbInstance, callback) {
     if (!row) return callback(new Error('OWNER_NOT_FOUND'));
     callback(null, numericId);
   });
+}
+
+function fetchTaskWithOwner(taskId, callback) {
+  db.get(
+    'SELECT tasks.*, users.username AS owner_username FROM tasks LEFT JOIN users ON tasks.owner_id = users.id WHERE tasks.id = ?',
+    [taskId],
+    (err, row) => {
+      if (err) return callback(err);
+      callback(null, normalizeTaskRow(row));
+    }
+  );
+}
+
+function userCanModifyTask(user, task) {
+  if (!task) return false;
+  if (user.role === 'admin') return true;
+  const ownerId = task.owner_id !== null && task.owner_id !== undefined ? Number(task.owner_id) : null;
+  if (ownerId === null) return true;
+  return ownerId === user.id;
+}
+
+function calculateElapsedSeconds(startIso, now = new Date()) {
+  if (!startIso) return 0;
+  const parsed = new Date(startIso);
+  if (Number.isNaN(parsed.getTime())) return 0;
+  const diffMs = now.getTime() - parsed.getTime();
+  if (diffMs <= 0) return 0;
+  return Math.floor(diffMs / 1000);
 }
 
 function archiveCompletedCards(rows, deletedBy, callback) {
@@ -386,8 +445,9 @@ function archiveCompletedCards(rows, deletedBy, callback) {
       parent_id,
       checklist,
       deleted_at,
-      deleted_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      deleted_by,
+      tracked_seconds
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   let firstError = null;
   doneCards.forEach(card => {
@@ -408,6 +468,9 @@ function archiveCompletedCards(rows, deletedBy, callback) {
         checklistJson = JSON.stringify(card.checklist);
       }
     }
+    const trackedSeconds = Number(card.tracked_seconds) || 0;
+    const elapsed = calculateElapsedSeconds(card.timer_started_at);
+    const totalTracked = trackedSeconds + elapsed;
     stmt.run(
       [
         card.id || null,
@@ -423,7 +486,8 @@ function archiveCompletedCards(rows, deletedBy, callback) {
         card.parent_id || null,
         checklistJson,
         now,
-        deletedBy || null
+        deletedBy || null,
+        totalTracked
       ],
       err => {
         if (err && !firstError) {
@@ -486,8 +550,8 @@ app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
       const newId = (row?.lastId || 0) + 1;
       const code = `TASK-${String(newId).padStart(3, '0')}`;
       db.run(
-        "INSERT INTO tasks (title, status, priority, description, assignee, parent_id, code, tags, checklist, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [title, finalStatus, priority, description, assignee, parentIdValue, code, tagsJson, checklistJson, finalOwnerId],
+        "INSERT INTO tasks (title, status, priority, description, assignee, parent_id, code, tags, checklist, owner_id, tracked_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [title, finalStatus, priority, description, assignee, parentIdValue, code, tagsJson, checklistJson, finalOwnerId, 0],
         function (err2) {
           if (err2) return res.status(500).json({ error: err2.message });
           const payload = {
@@ -504,7 +568,9 @@ app.post("/tasks", authMiddleware, audit('create_task'), (req, res) => {
             checklist: sanitizedChecklist,
             owner_id: finalOwnerId,
             regression_reason: null,
-            regression_reason_at: null
+            regression_reason_at: null,
+            tracked_seconds: 0,
+            timer_started_at: null
           };
           res.json(payload);
         }
@@ -576,6 +642,7 @@ app.put("/tasks/:id", authMiddleware, audit('update_task'), (req, res) => {
 
     const fields = [];
     const values = [];
+    const baseTrackedSeconds = Number(currentTask.tracked_seconds) || 0;
 
     if (title !== undefined) {
       if (!title || title.trim() === '') {
@@ -607,6 +674,13 @@ app.put("/tasks/:id", authMiddleware, audit('update_task'), (req, res) => {
         values.push(status);
         if (status === 'done') {
           fields.push("completed_at = datetime('now')");
+          const elapsed = calculateElapsedSeconds(currentTask.timer_started_at);
+          const nextTracked = baseTrackedSeconds + elapsed;
+          if (elapsed > 0) {
+            fields.push('tracked_seconds = ?');
+            values.push(nextTracked);
+          }
+          fields.push('timer_started_at = NULL');
         }
         if (status === 'backlog' || status === 'doing') {
           fields.push('completed_at = NULL');
@@ -741,6 +815,94 @@ app.put("/tasks/:id", authMiddleware, audit('update_task'), (req, res) => {
   });
 });
 
+function respondWithTask(taskId, res) {
+  fetchTaskWithOwner(taskId, (fetchErr, task) => {
+    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+    if (!task) return res.status(404).json({ error: 'Tarefa não encontrada' });
+    res.json(task);
+  });
+}
+
+app.post('/tasks/:id/timer/start', authMiddleware, audit('timer_start'), (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  if (Number.isNaN(taskId) || taskId < 1) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+  fetchTaskWithOwner(taskId, (err, task) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!task) return res.status(404).json({ error: 'Tarefa não encontrada' });
+    if (!userCanModifyTask(req.user, task)) {
+      return res.status(403).json({ error: 'Sem permissão para controlar o timer deste card' });
+    }
+    if (task.status === 'done') {
+      return res.status(400).json({ error: 'Não é possível iniciar o timer de um card concluído' });
+    }
+    if (task.timer_started_at) {
+      return res.status(409).json({ error: 'O timer já está em execução' });
+    }
+    const nowIso = new Date().toISOString();
+    db.run(
+      "UPDATE tasks SET timer_started_at = ?, updated_at = datetime('now') WHERE id = ?",
+      [nowIso, taskId],
+      function (updateErr) {
+        if (updateErr) return res.status(500).json({ error: updateErr.message });
+        respondWithTask(taskId, res);
+      }
+    );
+  });
+});
+
+app.post('/tasks/:id/timer/pause', authMiddleware, audit('timer_pause'), (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  if (Number.isNaN(taskId) || taskId < 1) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+  fetchTaskWithOwner(taskId, (err, task) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!task) return res.status(404).json({ error: 'Tarefa não encontrada' });
+    if (!userCanModifyTask(req.user, task)) {
+      return res.status(403).json({ error: 'Sem permissão para controlar o timer deste card' });
+    }
+    if (!task.timer_started_at) {
+      return res.status(409).json({ error: 'O timer não está em execução' });
+    }
+    const elapsed = calculateElapsedSeconds(task.timer_started_at);
+    const nextTracked = (Number(task.tracked_seconds) || 0) + elapsed;
+    db.run(
+      "UPDATE tasks SET tracked_seconds = ?, timer_started_at = NULL, updated_at = datetime('now') WHERE id = ?",
+      [nextTracked, taskId],
+      function (updateErr) {
+        if (updateErr) return res.status(500).json({ error: updateErr.message });
+        respondWithTask(taskId, res);
+      }
+    );
+  });
+});
+
+app.post('/tasks/:id/timer/stop', authMiddleware, audit('timer_stop'), (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  if (Number.isNaN(taskId) || taskId < 1) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+  fetchTaskWithOwner(taskId, (err, task) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!task) return res.status(404).json({ error: 'Tarefa não encontrada' });
+    if (!userCanModifyTask(req.user, task)) {
+      return res.status(403).json({ error: 'Sem permissão para controlar o timer deste card' });
+    }
+    const elapsed = calculateElapsedSeconds(task.timer_started_at);
+    const nextTracked = (Number(task.tracked_seconds) || 0) + elapsed;
+    db.run(
+      "UPDATE tasks SET tracked_seconds = ?, timer_started_at = NULL, updated_at = datetime('now') WHERE id = ?",
+      [nextTracked, taskId],
+      function (updateErr) {
+        if (updateErr) return res.status(500).json({ error: updateErr.message });
+        respondWithTask(taskId, res);
+      }
+    );
+  });
+});
+
 // Remover tarefa
 app.delete("/tasks/:id", authMiddleware, audit('delete_task'), (req, res) => {
   const taskId = parseInt(req.params.id, 10);
@@ -872,7 +1034,8 @@ app.get('/tasks/archive', authMiddleware, audit('list_archive'), (req, res) => {
         owner_id: row.owner_id !== null && row.owner_id !== undefined ? Number(row.owner_id) : null,
         restored_task_id: row.restored_task_id !== null && row.restored_task_id !== undefined ? Number(row.restored_task_id) : null,
         tags,
-        checklist
+        checklist,
+        tracked_seconds: Number(row.tracked_seconds) || 0
       };
     });
     res.json(normalized);
@@ -924,6 +1087,7 @@ app.post('/tasks/archive/:id/restore', authMiddleware, audit('restore_archive'),
     }
     const sanitizedChecklist = sanitizeChecklist(checklistArray);
     const checklistJson = JSON.stringify(sanitizedChecklist);
+    const trackedSeconds = Number(record.tracked_seconds) || 0;
 
     const priority = VALID_PRIORITIES.includes(record.priority) ? record.priority : 'media';
     const assignee = record.assignee || '';
@@ -938,7 +1102,7 @@ app.post('/tasks/archive/:id/restore', authMiddleware, audit('restore_archive'),
         const newId = (last?.lastId || 0) + 1;
         const code = `TASK-${String(newId).padStart(3, '0')}`;
         db.run(
-          "INSERT INTO tasks (title, status, priority, description, assignee, parent_id, code, tags, checklist, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO tasks (title, status, priority, description, assignee, parent_id, code, tags, checklist, owner_id, tracked_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           [
             record.title,
             'backlog',
@@ -949,7 +1113,8 @@ app.post('/tasks/archive/:id/restore', authMiddleware, audit('restore_archive'),
             code,
             tagsJson,
             checklistJson,
-            ownerIdForRestore ?? null
+            ownerIdForRestore ?? null,
+            trackedSeconds
           ],
           function (insertErr) {
             if (insertErr) return res.status(500).json({ error: insertErr.message });

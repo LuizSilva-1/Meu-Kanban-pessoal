@@ -189,16 +189,41 @@ function AuditLogModal({ isOpen, onRequestClose }) {
     </Modal>
   );
 }
+function formatDurationShort(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours > 0) {
+    const minPart = minutes > 0 ? ` ${minutes}m` : '';
+    return `${hours}h${minPart}`;
+  }
+  if (minutes > 0) {
+    const secPart = secs > 0 ? ` ${secs}s` : '';
+    return `${minutes}m${secPart}`;
+  }
+  return `${secs}s`;
+}
+
+function formatDurationHMS(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hours = String(Math.floor(total / 3600)).padStart(2, '0');
+  const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+  const secs = String(total % 60).padStart(2, '0');
+  return `${hours}:${minutes}:${secs}`;
+}
+
 // Função utilitária para exportar CSV
 function exportHistoricoCSV(historico) {
   if (!Array.isArray(historico) || historico.length === 0) return;
-  const header = 'Código,Título,Status Original,Prioridade,Dono do Card,Responsável,Tags,Removido em,Removido por,Restaurado em,Restaurado por\n';
+  const header = 'Código,Título,Status Original,Prioridade,Dono do Card,Responsável,Tags,Removido em,Removido por,Restaurado em,Restaurado por,Tempo Gasto (hh:mm:ss)\n';
   const rows = historico.map(item => {
     const safe = (value = '') => String(value || '').replace(/"/g, '""');
     const tags = Array.isArray(item.tags) ? item.tags.join(' | ') : '';
     const deletedAt = item.deleted_at ? new Date(item.deleted_at).toLocaleString() : '';
     const restoredAt = item.restored_at ? new Date(item.restored_at).toLocaleString() : '';
-    return `"${safe(item.code)}","${safe(item.title)}","${safe(item.original_status)}","${safe(item.priority)}","${safe(item.owner_username)}","${safe(item.assignee)}","${safe(tags)}","${safe(deletedAt)}","${safe(item.deleted_by)}","${safe(restoredAt)}","${safe(item.restored_by)}"`;
+    const duration = formatDurationHMS(item.tracked_seconds || 0);
+    return `"${safe(item.code)}","${safe(item.title)}","${safe(item.original_status)}","${safe(item.priority)}","${safe(item.owner_username)}","${safe(item.assignee)}","${safe(tags)}","${safe(deletedAt)}","${safe(item.deleted_by)}","${safe(restoredAt)}","${safe(item.restored_by)}","${safe(duration)}"`;
   });
   const csv = header + rows.join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -609,6 +634,16 @@ function normalizeTask(raw = {}) {
     }
   }
   const regressionReasonAt = raw.regression_reason_at || null;
+  const trackedSeconds = Number(raw.tracked_seconds) || 0;
+  let timerStartedAt = raw.timer_started_at || null;
+  if (timerStartedAt) {
+    const parsed = new Date(timerStartedAt);
+    if (Number.isNaN(parsed.getTime())) {
+      timerStartedAt = null;
+    } else {
+      timerStartedAt = parsed.toISOString();
+    }
+  }
   return {
     ...raw,
     tags,
@@ -617,7 +652,9 @@ function normalizeTask(raw = {}) {
     owner_id: ownerId,
     owner_username: ownerName,
     regression_reason: regressionReason,
-    regression_reason_at: regressionReasonAt
+    regression_reason_at: regressionReasonAt,
+    tracked_seconds: trackedSeconds,
+    timer_started_at: timerStartedAt
   };
 }
 
@@ -649,7 +686,8 @@ function normalizeArchiveEntry(raw = {}) {
     tags,
     checklist,
     deleted_at: raw.deleted_at || null,
-    restored_at: raw.restored_at || null
+    restored_at: raw.restored_at || null,
+    tracked_seconds: Number(raw.tracked_seconds) || 0
   };
 }
 
@@ -893,6 +931,24 @@ const handleLogout = useCallback(() => {
   const [newTagValue, setNewTagValue] = useState('');
   const [newChecklistText, setNewChecklistText] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null); // id da tarefa a confirmar
+  const [timerBusyIds, setTimerBusyIds] = useState(() => new Set());
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  const computeElapsedSeconds = useCallback((task) => {
+    if (!task) return 0;
+    const base = Number(task.tracked_seconds) || 0;
+    if (!task.timer_started_at) return base;
+    const startedAt = new Date(task.timer_started_at).getTime();
+    if (Number.isNaN(startedAt)) return base;
+    const diff = Math.max(0, Math.floor((nowTick - startedAt) / 1000));
+    return base + diff;
+  }, [nowTick]);
+
+  const detailElapsedSeconds = detailTask ? computeElapsedSeconds(detailTask) : 0;
+  const detailTimerRunning = detailTask ? Boolean(detailTask.timer_started_at) : false;
+  const detailTimerBusy = detailTask ? timerBusyIds.has(detailTask.id) : false;
+  const detailCanStop = detailTimerRunning || detailElapsedSeconds > 0;
+  const detailTimerFullLabel = formatDurationHMS(detailElapsedSeconds);
 
   const currentUserId = user?.id !== undefined && user?.id !== null ? Number(user.id) : null;
 
@@ -1232,6 +1288,92 @@ const handleLogout = useCallback(() => {
     setNewChecklistText('');
   };
 
+  const setTimerBusy = useCallback((taskId, busy) => {
+    setTimerBusyIds(prev => {
+      const next = new Set(prev);
+      if (busy) {
+        next.add(taskId);
+      } else {
+        next.delete(taskId);
+      }
+      return next;
+    });
+  }, []);
+
+  const applyTaskUpdate = useCallback((updatedTask) => {
+    const normalized = normalizeTask(updatedTask);
+    setTasks(prev => {
+      let replaced = false;
+      const next = prev.map(task => {
+        if (task.id !== normalized.id) return task;
+        replaced = true;
+        return normalized;
+      });
+      return replaced ? next : prev;
+    });
+    setDetailTask(prev => (prev && prev.id === normalized.id ? normalized : prev));
+  }, [setTasks, setDetailTask]);
+
+  const startTaskTimer = useCallback((taskId) => {
+    if (timerBusyIds.has(taskId)) return;
+    setTimerBusy(taskId, true);
+    axios.post(`/tasks/${taskId}/timer/start`)
+      .then(res => {
+        applyTaskUpdate(res.data);
+        setNowTick(Date.now());
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+          return;
+        }
+        toast.error(err.response?.data?.error || 'Não foi possível iniciar o timer');
+      })
+      .finally(() => {
+        setTimerBusy(taskId, false);
+      });
+  }, [applyTaskUpdate, handleLogout, setTimerBusy, timerBusyIds]);
+
+  const pauseTaskTimer = useCallback((taskId) => {
+    if (timerBusyIds.has(taskId)) return;
+    setTimerBusy(taskId, true);
+    axios.post(`/tasks/${taskId}/timer/pause`)
+      .then(res => {
+        applyTaskUpdate(res.data);
+        setNowTick(Date.now());
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+          return;
+        }
+        toast.error(err.response?.data?.error || 'Não foi possível pausar o timer');
+      })
+      .finally(() => {
+        setTimerBusy(taskId, false);
+      });
+  }, [applyTaskUpdate, handleLogout, setTimerBusy, timerBusyIds]);
+
+  const stopTaskTimer = useCallback((taskId) => {
+    if (timerBusyIds.has(taskId)) return;
+    setTimerBusy(taskId, true);
+    axios.post(`/tasks/${taskId}/timer/stop`)
+      .then(res => {
+        applyTaskUpdate(res.data);
+        setNowTick(Date.now());
+      })
+      .catch(err => {
+        if (err.response?.status === 401) {
+          handleLogout();
+          return;
+        }
+        toast.error(err.response?.data?.error || 'Não foi possível parar o timer');
+      })
+      .finally(() => {
+        setTimerBusy(taskId, false);
+      });
+  }, [applyTaskUpdate, handleLogout, setTimerBusy, timerBusyIds]);
+
 
   const fetchTasks = useCallback(() => {
     if (!user?.token) return;
@@ -1253,6 +1395,37 @@ const handleLogout = useCallback(() => {
   }, [fetchTasks]);
 
   useEffect(() => {
+    const hasRunning = tasks.some(task => task.timer_started_at);
+    if (!hasRunning) return;
+    setNowTick(Date.now());
+    const interval = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [tasks]);
+
+  useEffect(() => {
+    setTimerBusyIds(prev => {
+      const next = new Set();
+      tasks.forEach(task => {
+        if (prev.has(task.id)) {
+          next.add(task.id);
+        }
+      });
+      if (next.size === prev.size) {
+        let identical = true;
+        prev.forEach(id => {
+          if (!next.has(id)) {
+            identical = false;
+          }
+        });
+        if (identical) {
+          return prev;
+        }
+      }
+      return next;
+    });
+  }, [tasks]);
+
+  useEffect(() => {
     if (!detailTask) {
       setDetailHistory([]);
       setHistoryError('');
@@ -1269,7 +1442,8 @@ const handleLogout = useCallback(() => {
       priority: detailTask.priority && priorityOptions.includes(detailTask.priority) ? detailTask.priority : 'media',
       assignee: detailTask.assignee || '',
       tags: sanitizeTagsClient(detailTask.tags),
-      checklist: sanitizeChecklistClient(detailTask.checklist)
+      checklist: sanitizeChecklistClient(detailTask.checklist),
+      owner_id: detailTask.owner_id ?? null
     });
     setNewTagValue('');
     setNewChecklistText('');
@@ -1627,6 +1801,12 @@ const handleLogout = useCallback(() => {
       : (ownerNameById.get(ownerId) || task.owner_username || `Usuário ${ownerId}`);
     const displayOwnerName = ownerId !== null && ownerId === currentUserId ? 'Você' : ownerName;
     const showOwnerBadge = isAdmin || (currentUserId !== null && ownerId !== null && ownerId !== currentUserId);
+    const timerBusy = timerBusyIds.has(task.id);
+    const elapsedSeconds = computeElapsedSeconds(task);
+    const timerRunning = Boolean(task.timer_started_at);
+    const timerLabel = formatDurationShort(elapsedSeconds);
+    const timerFullLabel = formatDurationHMS(elapsedSeconds);
+    const canStopTimer = timerRunning || elapsedSeconds > 0;
 
     const handleCardClick = (event) => {
       if (selectionMode) {
@@ -1783,6 +1963,53 @@ const handleLogout = useCallback(() => {
             </button>
           )}
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, gap: 6 }}>
+          <span
+            title={`Total registrado: ${timerFullLabel}`}
+            style={{ fontSize: 12, fontWeight: 600, color: timerRunning ? '#1565c0' : '#607d8b' }}
+          >
+            ⏱️ {timerLabel}
+            {timerRunning ? ' • rodando' : ''}
+            {timerBusy ? ' • salvando...' : ''}
+          </span>
+          {status !== 'done' && (
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                className="kanban-icon-btn confirm"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  startTaskTimer(task.id);
+                }}
+                title="Iniciar timer"
+                disabled={timerRunning || timerBusy}
+              >
+                ▶
+              </button>
+              <button
+                className="kanban-icon-btn info"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  pauseTaskTimer(task.id);
+                }}
+                title="Pausar timer"
+                disabled={!timerRunning || timerBusy}
+              >
+                ⏸
+              </button>
+              <button
+                className="kanban-icon-btn danger"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  stopTaskTimer(task.id);
+                }}
+                title="Parar e registrar tempo"
+                disabled={!canStopTimer || timerBusy}
+              >
+                ■
+              </button>
+            </div>
+          )}
+        </div>
         <div className="kanban-card-footer">
           {checklistItems.length > 0 && (
             <span className="kanban-checklist-summary">Checklist {doneChecklistItems}/{checklistItems.length}</span>
@@ -1853,17 +2080,24 @@ const handleLogout = useCallback(() => {
       payload.regression_reason = regressionReason;
     }
     const originalParent = originalTask.parent_id ? tasks.find(t => t.id === originalTask.parent_id) : null;
+    const timerSnapshotSeconds = status === 'done' ? computeElapsedSeconds(originalTask) : null;
     axios.put(`/tasks/${id}`, payload).then(() => {
       const nowIso = new Date().toISOString();
       setTasks(prev => prev.map(t => {
         if (t.id !== id) return t;
         const extra = regressionReason ? { regression_reason: regressionReason, regression_reason_at: nowIso } : {};
-        return { ...t, status, updated_at: nowIso, ...extra };
+        const timerExtra = timerSnapshotSeconds !== null
+          ? { tracked_seconds: timerSnapshotSeconds, timer_started_at: null }
+          : {};
+        return { ...t, status, updated_at: nowIso, ...extra, ...timerExtra };
       }));
       setDetailTask(prev => {
         if (!prev || prev.id !== id) return prev;
         const extra = regressionReason ? { regression_reason: regressionReason, regression_reason_at: nowIso } : {};
-        return { ...prev, status, updated_at: nowIso, ...extra };
+        const timerExtra = timerSnapshotSeconds !== null
+          ? { tracked_seconds: timerSnapshotSeconds, timer_started_at: null }
+          : {};
+        return { ...prev, status, updated_at: nowIso, ...extra, ...timerExtra };
       });
       if (originalTask.parent_id && status !== originalTask.status) {
         const parentLabel = originalParent?.code || `Card ${originalTask.parent_id}`;
@@ -2244,6 +2478,9 @@ const handleLogout = useCallback(() => {
                       <span>Status original: {statusLabel}</span>
                       <span>Prioridade: {priorityLabel}</span>
                       <span>Dono: {ownerLabel}</span>
+                      <span title={`Total registrado: ${formatDurationHMS(item.tracked_seconds || 0)}`}>
+                        ⏱️ Tempo: {formatDurationShort(item.tracked_seconds || 0)}
+                      </span>
                       {item.assignee && <span>Responsável: {item.assignee}</span>}
                       {item.tags.length > 0 && (
                         <span>Tags: {item.tags.map(tag => `#${tag}`).join(' ')}</span>
@@ -2309,6 +2546,44 @@ const handleLogout = useCallback(() => {
           <div className="detail-modal-body">
             <div className="detail-row"><span>Nome:</span><strong>{detailTask.title}</strong></div>
             <div className="detail-row"><span>Status:</span><strong>{statusLabels[detailTask.status]}</strong></div>
+            <div className="detail-row">
+              <span>Tempo registrado:</span>
+              <strong title={`Total: ${detailTimerFullLabel}`}>
+                {formatDurationShort(detailElapsedSeconds)}
+                {detailTimerRunning ? ' (em andamento)' : detailTimerBusy ? ' (atualizando...)' : ''}
+              </strong>
+            </div>
+            {detailTask.status !== 'done' && (
+              <div className="detail-row" style={{ alignItems: 'center', gap: 8 }}>
+                <span>Controle do timer:</span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    className="kanban-btn"
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                    onClick={() => startTaskTimer(detailTask.id)}
+                    disabled={detailTimerRunning || detailTimerBusy}
+                  >
+                    ▶ Iniciar
+                  </button>
+                  <button
+                    className="kanban-btn secondary"
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                    onClick={() => pauseTaskTimer(detailTask.id)}
+                    disabled={!detailTimerRunning || detailTimerBusy}
+                  >
+                    ⏸ Pausar
+                  </button>
+                  <button
+                    className="kanban-btn delete"
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                    onClick={() => stopTaskTimer(detailTask.id)}
+                    disabled={!detailCanStop || detailTimerBusy}
+                  >
+                    ■ Parar
+                  </button>
+                </div>
+              </div>
+            )}
             {detailTask.regression_reason && (
               <div className="detail-row">
                 <span>Motivo do retorno:</span>
